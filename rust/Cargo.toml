@@ -4,4 +4,6 @@ members = [
   "crates/common",
   "crates/audit_log",
   "crates/kernel_state",
+  "crates/gsama_core",
+  "crates/gsama_encoder",
 ]
