@@ -331,6 +331,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serverd"
+version = "0.1.0"
+dependencies = [
+ "pie_common",
+ "pie_kernel_state",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "sha1_smol"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

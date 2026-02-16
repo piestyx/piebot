@@ -6,4 +6,5 @@ members = [
   "crates/kernel_state",
   "crates/gsama_core",
   "crates/gsama_encoder",
+  "crates/serverd",
 ]
