@@ -49,3 +49,8 @@ pub fn canonical_json_bytes(v: &Value) -> Result<Vec<u8>, CanonError> {
     let canon = canonicalize_value(v);
     Ok(serde_json::to_vec(&canon)?)
 }
+
+pub fn canonical_serialize_bytes<T: serde::Serialize>(t: &T) -> Result<Vec<u8>, CanonError> {
+    let v = serde_json::to_value(t)?;
+    canonical_json_bytes(&v)
+}
