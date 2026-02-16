@@ -1,0 +1,20 @@
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# --- Rust ---
+debug
+target
+**/*.rs.bk
+
+# --- Generated runtime ---
+/runtime/
