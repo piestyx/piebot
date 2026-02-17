@@ -36,3 +36,79 @@ pieBot is a local‑first, Rust‑authoritative agent execution substrate. Model
   - `retrieval.kind = "gsama"` for vector retrieval
   - GSAMA store persistence at `runtime/memory/gsama/store_snapshot.json`
   - fail-closed query/vector dimension checks and config validation
+
+## Quickstart
+
+### Build
+
+```bash
+# Build serverd (main daemon)
+cargo build -p serverd --manifest-path rust/Cargo.toml
+```
+
+### Run serverd
+
+Run a minimal local route tick (uses in‑tree mocks; no network):
+
+```bash
+cargo run -p serverd --manifest-path rust/Cargo.toml -- \
+  --mode route --ticks 1 --delta "tick:0" --runtime runtime
+```
+
+Run with a specific mode profile:
+
+```bash
+cargo run -p serverd --manifest-path rust/Cargo.toml -- \
+  --mode route --ticks 1 --delta "tick:0" --runtime runtime \
+  --mode-id focused
+```
+
+Generate an explain artifact for a run:
+
+```bash
+cargo run -p serverd --manifest-path rust/Cargo.toml -- \
+  explain --runtime runtime --run <run_id>
+```
+
+## Tests
+
+All tests:
+
+```bash
+# All serverd tests
+cargo test -p serverd --manifest-path rust/Cargo.toml
+```
+
+Core stage proof tests:
+
+```bash
+# Foundation (Stages 0–6)
+cargo test -p serverd --manifest-path rust/Cargo.toml --test stage2_memory
+cargo test -p serverd --manifest-path rust/Cargo.toml --test stage3_router
+cargo test -p serverd --manifest-path rust/Cargo.toml --test stage4_tools
+cargo test -p serverd --manifest-path rust/Cargo.toml --test stage5_skills
+cargo test -p serverd --manifest-path rust/Cargo.toml --test stage6_end_to_end
+```
+
+## Make Targets
+
+```bash
+make setup          # Create runtime directories
+make check          # Run repo checks
+make build          # Build all crates
+make test           # Run all tests
+make test-serverd   # Run serverd tests only
+make test-tui       # Run operator_tui tests only
+make test-stage-7-12
+make stage-gate
+```
+
+## Safety Switches / Environment Flags
+
+- `TOOLS_ENABLE=1` — enables tool execution (default: off)
+- `TOOLS_ARM=1` — arms tools that require arming or are high‑risk (default: off)
+- `OPEN_MEMORY_ENABLE=1` — enables OpenMemory mirror writes (default: off)
+
+## License
+
+See LICENSE file.
