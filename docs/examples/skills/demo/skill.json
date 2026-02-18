@@ -1,0 +1,18 @@
+{
+  "schema": "serverd.skill_manifest.v1",
+  "skill_id": "demo",
+  "name": "Demo Noop Skill",
+  "description": "Example skill for tools.noop",
+  "allowed_tools": [
+    "tools.noop"
+  ],
+  "tool_constraints": [
+    {
+      "tool_id": "tools.noop",
+      "require": {
+        "schema": "serverd.tool_input.noop.v1"
+      }
+    }
+  ],
+  "prompt_template_refs": []
+}
