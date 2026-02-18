@@ -1,0 +1,15 @@
+[
+    {
+        "file": "model.gguf",
+        "general_architecture": "llama",
+        "size": "XX.X GB",
+        "parameters": "XXB",
+        "tags": ["tag1", "tag2"],
+        "quantized_by": "Name of the person who quantized the model",
+        "quantization_size": "QX_K*",
+        "repo_url": "https://huggingface.co/username/model-repo"
+    }
+]
+
+
+
