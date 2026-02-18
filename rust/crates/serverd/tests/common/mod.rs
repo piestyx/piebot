@@ -1,17 +1,16 @@
 #![allow(dead_code)] // Shared across many integration test crates; each crate uses only a subset.
 use pie_kernel_state::{save, KernelState};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use uuid::Uuid;
 
-/// Resolve the built `serverd` binary path for integration tests.
-///
-/// Some harnesses expose `CARGO_BIN_EXE_serverd` at runtime, others only via
-/// compile-time `env!`. Prefer runtime if present; fallback to compile-time.
-pub fn serverd_exe() -> PathBuf {
-    std::env::var_os("CARGO_BIN_EXE_serverd")
-        .map(PathBuf::from)
-        .expect("CARGO_BIN_EXE_serverd not set. Run tests with `cargo test -p serverd --features bin` (bin is required).")
+
+pub fn serverd_exe() -> std::path::PathBuf {
+    // This forces Cargo to provide the path to the built binary.
+    // If it isn't provided, that means the binary target wasn't built for this test invocation.
+    let p = option_env!("CARGO_BIN_EXE_serverd")
+        .expect("CARGO_BIN_EXE_serverd not set. Ensure the serverd binary target is built for tests (bin feature/defaults).");
+    std::path::PathBuf::from(p)
 }
 
 pub(crate) fn write_initial_state(runtime_root: &Path) {
