@@ -18,3 +18,8 @@ target
 
 # --- Generated runtime ---
 /runtime/
+/docs/tmp
+
+# --- Generated runtime ---
+*.gguf
+models/*/index.json
