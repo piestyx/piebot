@@ -42,7 +42,7 @@ use crate::tools::ToolRegistry;
 use crate::policy::workspace::WorkspaceContext;
 use pie_audit_log::AuditAppender;
 use pie_common::canonical_json_bytes;
-use pie_state::{load_or_init, state_hash};
+use pie_kernel_state::{load_or_init, state_hash};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
