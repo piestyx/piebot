@@ -53,6 +53,34 @@ pub struct CapsuleExportArgs {
     pub out: Option<PathBuf>,
 }
 
+pub struct OperatorApproveArgs {
+    pub runtime_root: PathBuf,
+    pub run_id: String,
+    pub tool_or_action_id: String,
+    pub reason: String,
+    pub input_ref: Option<String>,
+}
+
+pub struct OperatorLearningsAppendArgs {
+    pub runtime_root: PathBuf,
+    pub skill_id: String,
+    pub learning_text: String,
+    pub tags: Option<String>,
+}
+
+pub struct OperatorReplayVerifyArgs {
+    pub runtime_root: PathBuf,
+    pub run_id: Option<String>,
+    pub capsule_ref: Option<String>,
+}
+
+pub struct OperatorCapsuleExportArgs {
+    pub runtime_root: PathBuf,
+    pub run_id: Option<String>,
+    pub capsule_ref: Option<String>,
+    pub out: PathBuf,
+}
+
 #[derive(Debug, Clone)]
 pub enum InputSource {
     Stdin,

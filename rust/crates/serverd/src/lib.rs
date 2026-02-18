@@ -2,15 +2,16 @@
 
 mod audit;
 // mod cli;
-mod mutations;
-pub(crate) mod task;
-mod runner;
 pub(crate) mod capsule;
-pub(crate) mod policy;
-pub(crate) mod runtime;
-mod tick_core;
-mod route;
 mod context;
+mod mutations;
+mod operator_actions;
+pub(crate) mod policy;
+mod route;
+mod runner;
+pub(crate) mod runtime;
+pub(crate) mod task;
+mod tick_core;
 // pub use crate::cli::run;
 pub use crate::policy::context_policy::{load_context_policy, CONTEXT_POLICY_SCHEMA};
 pub mod lenses;
@@ -26,10 +27,10 @@ pub mod retrieval;
 mod router;
 pub use crate::capsule::run_capsule::RUN_CAPSULE_SCHEMA;
 pub use crate::runtime::explain::EXPLAIN_SCHEMA;
+pub mod command;
 pub mod skills;
 pub mod state_delta_artifact;
 pub mod tools;
-pub mod command;
 
 #[cfg(feature = "bin")]
 pub mod cli;

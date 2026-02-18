@@ -1,9 +1,9 @@
-use crate::runtime::artifacts::{artifact_filename, is_sha256_ref};
 use crate::audit::{
     append_event, filter_events_for_run, read_audit_events as read_audit_events_raw, succeed_run,
     AuditEvent, AuditReadError,
 };
 use crate::command::{ApproveArgs, CapsuleExportArgs, LearnArgs};
+use crate::runtime::artifacts::{artifact_filename, is_sha256_ref};
 use crate::tools::policy::{TOOL_APPROVAL_REQUEST_SCHEMA, TOOL_APPROVAL_SCHEMA};
 use crate::tools::ToolId;
 use pie_audit_log::AuditAppender;
@@ -15,30 +15,30 @@ use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 const LEARNING_ENTRY_SCHEMA: &str = "serverd.learning_entry.v1";
-const MAX_LEARNING_BYTES: usize = 4096;
+pub(crate) const MAX_LEARNING_BYTES: usize = 4096;
 
 #[derive(Debug)]
-struct MutationError {
+pub(crate) struct MutationError {
     reason: &'static str,
     detail: Option<String>,
 }
 
 impl MutationError {
-    fn new(reason: &'static str) -> Self {
+    pub(crate) fn new(reason: &'static str) -> Self {
         Self {
             reason,
             detail: None,
         }
     }
 
-    fn with_detail(reason: &'static str, detail: String) -> Self {
+    pub(crate) fn with_detail(reason: &'static str, detail: String) -> Self {
         Self {
             reason,
             detail: Some(detail),
         }
     }
 
-    fn reason(&self) -> &'static str {
+    pub(crate) fn reason(&self) -> &'static str {
         self.reason
     }
 }
@@ -56,16 +56,16 @@ impl std::error::Error for MutationError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
-struct ToolApprovalRequest {
-    schema: String,
-    tool_id: String,
-    request_hash: String,
-    input_ref: String,
+pub(crate) struct ToolApprovalRequest {
+    pub(crate) schema: String,
+    pub(crate) tool_id: String,
+    pub(crate) request_hash: String,
+    pub(crate) input_ref: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
-struct ToolApproval {
+pub(crate) struct ToolApproval {
     schema: String,
     approval_ref: String,
     tool_id: String,
@@ -75,7 +75,7 @@ struct ToolApproval {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
-struct LearningEntry {
+pub(crate) struct LearningEntry {
     schema: String,
     text: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -85,9 +85,9 @@ struct LearningEntry {
 }
 
 #[derive(Debug)]
-struct ApprovalMatch {
-    approval_ref: String,
-    request_hash: String,
+pub(crate) struct ApprovalMatch {
+    pub(crate) approval_ref: String,
+    pub(crate) request_hash: String,
 }
 
 pub(crate) fn run_approve(args: ApproveArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -314,7 +314,7 @@ pub(crate) fn run_capsule_export(
     )
 }
 
-fn ensure_runtime_root(path: &Path) -> Result<(), MutationError> {
+pub(crate) fn ensure_runtime_root(path: &Path) -> Result<(), MutationError> {
     if !path.exists() {
         return Err(MutationError::new("runtime_root_missing"));
     }
@@ -324,7 +324,7 @@ fn ensure_runtime_root(path: &Path) -> Result<(), MutationError> {
     Ok(())
 }
 
-fn open_audit(runtime_root: &Path) -> Result<(AuditAppender, PathBuf), MutationError> {
+pub(crate) fn open_audit(runtime_root: &Path) -> Result<(AuditAppender, PathBuf), MutationError> {
     let dir = runtime_root.join("logs");
     fs::create_dir_all(&dir)
         .map_err(|e| MutationError::with_detail("audit_open_failed", e.to_string()))?;
@@ -342,7 +342,7 @@ fn emit_error(reason: &'static str) -> Result<(), Box<dyn std::error::Error>> {
     Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, reason).into())
 }
 
-fn find_approval_request(
+pub(crate) fn find_approval_request(
     runtime_root: &Path,
     tool_id: &ToolId,
     input_ref: &str,
@@ -396,7 +396,7 @@ fn find_approval_request(
     }
 }
 
-fn write_approval_file(
+pub(crate) fn write_approval_file(
     runtime_root: &Path,
     approval_ref: &str,
     tool_id: &ToolId,
@@ -449,7 +449,7 @@ fn approval_filename(approval_ref: &str) -> String {
     format!("{}.approved.json", trimmed)
 }
 
-fn append_learning(runtime_root: &Path, bytes: &[u8]) -> Result<(), MutationError> {
+pub(crate) fn append_learning(runtime_root: &Path, bytes: &[u8]) -> Result<(), MutationError> {
     let dir = runtime_root.join("learnings");
     fs::create_dir_all(&dir)
         .map_err(|e| MutationError::with_detail("learning_write_failed", e.to_string()))?;
@@ -466,14 +466,14 @@ fn append_learning(runtime_root: &Path, bytes: &[u8]) -> Result<(), MutationErro
     Ok(())
 }
 
-fn map_audit_read_error(err: AuditReadError) -> MutationError {
+pub(crate) fn map_audit_read_error(err: AuditReadError) -> MutationError {
     match err.detail() {
         Some(detail) => MutationError::with_detail(err.reason(), detail.to_string()),
         None => MutationError::new(err.reason()),
     }
 }
 
-fn normalize_line_endings(input: &str) -> String {
+pub(crate) fn normalize_line_endings(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut prev_was_cr = false;
     for ch in input.chars() {
@@ -493,7 +493,7 @@ fn normalize_line_endings(input: &str) -> String {
     out
 }
 
-fn parse_tags(raw: Option<&str>) -> Result<Vec<String>, MutationError> {
+pub(crate) fn parse_tags(raw: Option<&str>) -> Result<Vec<String>, MutationError> {
     let raw = match raw {
         Some(value) => value,
         None => return Ok(Vec::new()),
@@ -514,20 +514,24 @@ fn parse_tags(raw: Option<&str>) -> Result<Vec<String>, MutationError> {
     Ok(tags)
 }
 
-fn is_safe_tag_token(value: &str) -> bool {
+pub(crate) fn is_safe_tag_token(value: &str) -> bool {
     value
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
-fn read_audit_events_checked(audit_path: &Path) -> Result<Vec<serde_json::Value>, MutationError> {
+pub(crate) fn read_audit_events_checked(
+    audit_path: &Path,
+) -> Result<Vec<serde_json::Value>, MutationError> {
     if !audit_path.exists() {
         return Err(MutationError::new("audit_log_missing"));
     }
     read_audit_events_raw(audit_path).map_err(map_audit_read_error)
 }
 
-fn resolve_capsule_ref(run_events: &[serde_json::Value]) -> Result<String, MutationError> {
+pub(crate) fn resolve_capsule_ref(
+    run_events: &[serde_json::Value],
+) -> Result<String, MutationError> {
     let mut found: Option<String> = None;
     for event in run_events {
         let event_type = event
@@ -546,7 +550,10 @@ fn resolve_capsule_ref(run_events: &[serde_json::Value]) -> Result<String, Mutat
     found.ok_or_else(|| MutationError::new("audit_log_invalid"))
 }
 
-fn read_capsule_bytes(runtime_root: &Path, capsule_ref: &str) -> Result<Vec<u8>, MutationError> {
+pub(crate) fn read_capsule_bytes(
+    runtime_root: &Path,
+    capsule_ref: &str,
+) -> Result<Vec<u8>, MutationError> {
     if !is_sha256_ref(capsule_ref) {
         return Err(MutationError::new("capsule_ref_invalid"));
     }
@@ -557,7 +564,7 @@ fn read_capsule_bytes(runtime_root: &Path, capsule_ref: &str) -> Result<Vec<u8>,
     fs::read(&path).map_err(|e| MutationError::with_detail("capsule_read_failed", e.to_string()))
 }
 
-fn resolve_export_path(
+pub(crate) fn resolve_export_path(
     runtime_root: &Path,
     capsule_ref: &str,
     out: Option<&PathBuf>,
@@ -604,7 +611,7 @@ fn resolve_export_path(
     Ok((candidate, rel_path))
 }
 
-fn write_export_file(path: &Path, bytes: &[u8]) -> Result<(), MutationError> {
+pub(crate) fn write_export_file(path: &Path, bytes: &[u8]) -> Result<(), MutationError> {
     if path.exists() {
         let existing = fs::read(path)
             .map_err(|e| MutationError::with_detail("capsule_export_failed", e.to_string()))?;

@@ -166,7 +166,7 @@ fn run_applies_pending_task() {
     );
     assert!(status.get("last_hash").and_then(|v| v.as_str()).is_some());
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     let state_bytes = fs::read(&state_path).expect("missing state file");
     let state: serde_json::Value =
         serde_json::from_slice(&state_bytes).expect("state file not json");
@@ -232,7 +232,7 @@ fn run_falls_back_to_delta_when_no_pending() {
     assert_eq!(scan_count, 1, "task_queue_scanned must occur exactly once");
     assert_stage2_events_within_window(&events, state_delta_applied_idx, tick_completed_idx);
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     let state_bytes = fs::read(&state_path).expect("missing state file");
     let state: serde_json::Value =
         serde_json::from_slice(&state_bytes).expect("state file not json");
@@ -277,7 +277,7 @@ fn run_is_deterministic_with_two_pending() {
         Some("pending")
     );
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     let state_bytes = fs::read(&state_path).expect("missing state file");
     let state: serde_json::Value =
         serde_json::from_slice(&state_bytes).expect("state file not json");
@@ -321,7 +321,7 @@ fn pending_status_but_task_missing_fails_closed() {
     );
     assert!(status.get("last_hash").map_or(true, |v| v.is_null()));
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     assert!(!state_path.exists());
 }
 
@@ -357,7 +357,7 @@ fn orphan_status_without_task_fails_closed() {
     let expected = vec!["run_started", "run_completed"];
     assert_eq!(events, expected);
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     assert!(!state_path.exists());
 }
 
@@ -384,7 +384,7 @@ fn orphan_task_file_without_status_fails_closed() {
     let expected = vec!["run_started", "run_completed"];
     assert_eq!(events, expected);
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     assert!(!state_path.exists());
 }
 
@@ -418,7 +418,7 @@ fn invalid_status_schema_fails_closed() {
     let expected = vec!["run_started", "run_completed"];
     assert_eq!(events, expected);
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     assert!(!state_path.exists());
 }
 
@@ -446,6 +446,6 @@ fn malformed_status_json_fails_closed() {
     let expected = vec!["run_started", "run_completed"];
     assert_eq!(events, expected);
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     assert!(!state_path.exists());
 }

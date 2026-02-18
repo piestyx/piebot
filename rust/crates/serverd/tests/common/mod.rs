@@ -9,16 +9,15 @@ use uuid::Uuid;
 /// Some harnesses expose `CARGO_BIN_EXE_serverd` at runtime, others only via
 /// compile-time `env!`. Prefer runtime if present; fallback to compile-time.
 pub fn serverd_exe() -> PathBuf {
-    if let Ok(v) = std::env::var("CARGO_BIN_EXE_serverd") {
-        return PathBuf::from(v);
-    }
-    PathBuf::from(env!("CARGO_BIN_EXE_serverd"))
+    std::env::var_os("CARGO_BIN_EXE_serverd")
+        .map(PathBuf::from)
+        .expect("CARGO_BIN_EXE_serverd not set. Run tests with `cargo test -p serverd --features bin` (bin is required).")
 }
 
 pub(crate) fn write_initial_state(runtime_root: &Path) {
     let state_dir = runtime_root.join("state");
     fs::create_dir_all(&state_dir).expect("create state dir");
-    let state_path = state_dir.join("gsama_state.json");
+    let state_path = state_dir.join("kernel_state.json");
     let mut state = KernelState::default();
     state.state_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
     save(&state_path, &state).expect("write initial state");

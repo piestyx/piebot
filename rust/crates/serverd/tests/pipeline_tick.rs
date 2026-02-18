@@ -31,7 +31,7 @@ fn run_serverd(
     cmd.output().expect("failed to run serverd")
 }
 fn write_initial_state(runtime_root: &Path) {
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     let mut state = KernelState::default();
     state.state_id = Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
     save(&state_path, &state).expect("failed to write initial state");

@@ -1,13 +1,18 @@
+use crate::command::{
+    ApproveArgs, Args, CapsuleExportArgs, IngestArgs, InputSource, LearnArgs, Mode,
+    OperatorApproveArgs, OperatorCapsuleExportArgs, OperatorLearningsAppendArgs,
+    OperatorReplayVerifyArgs, ReplayArgs, VerifyArgs,
+};
+use crate::mutations::{run_approve, run_capsule_export, run_learn};
+use crate::operator_actions::{
+    run_operator_approve, run_operator_capsule_export, run_operator_learnings_append,
+    run_operator_replay_verify,
+};
+use crate::runner::{run_ingest, run_null, run_replay, run_route, run_verify};
 use crate::runtime::explain::run_explain;
 use crate::runtime::explain_args::ExplainArgs;
-use crate::mutations::{run_approve, run_capsule_export, run_learn};
-use crate::runner::{run_ingest, run_null, run_replay, run_route, run_verify};
 use pie_kernel_state::StateDelta;
 use std::path::PathBuf;
-use crate::command::{
-    ApproveArgs, Args, CapsuleExportArgs, IngestArgs, InputSource, LearnArgs, Mode, ReplayArgs,
-    VerifyArgs,
-};
 
 pub(crate) enum Command {
     Run(Args),
@@ -18,6 +23,10 @@ pub(crate) enum Command {
     Approve(ApproveArgs),
     Learn(LearnArgs),
     CapsuleExport(CapsuleExportArgs),
+    OperatorApprove(OperatorApproveArgs),
+    OperatorLearningsAppend(OperatorLearningsAppendArgs),
+    OperatorReplayVerify(OperatorReplayVerifyArgs),
+    OperatorCapsuleExport(OperatorCapsuleExportArgs),
 }
 
 fn default_runtime_root() -> PathBuf {
@@ -464,6 +473,227 @@ where
     })
 }
 
+fn parse_operator_approve_args_from<I>(mut it: I) -> Result<OperatorApproveArgs, String>
+where
+    I: Iterator<Item = String>,
+{
+    let mut runtime_root: Option<PathBuf> = None;
+    let mut run_id: Option<String> = None;
+    let mut tool_id: Option<String> = None;
+    let mut reason: Option<String> = None;
+    let mut input_ref: Option<String> = None;
+
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--runtime" => {
+                runtime_root = Some(PathBuf::from(
+                    it.next().ok_or("missing value for --runtime")?,
+                ));
+            }
+            "--run-id" => {
+                if run_id.is_some() {
+                    return Err("multiple values provided for --run-id".to_string());
+                }
+                run_id = Some(it.next().ok_or("missing value for --run-id")?);
+            }
+            "--tool-id" => {
+                if tool_id.is_some() {
+                    return Err("multiple values provided for --tool-id".to_string());
+                }
+                tool_id = Some(it.next().ok_or("missing value for --tool-id")?);
+            }
+            "--reason" => {
+                if reason.is_some() {
+                    return Err("multiple values provided for --reason".to_string());
+                }
+                reason = Some(it.next().ok_or("missing value for --reason")?);
+            }
+            "--input-ref" => {
+                if input_ref.is_some() {
+                    return Err("multiple values provided for --input-ref".to_string());
+                }
+                input_ref = Some(it.next().ok_or("missing value for --input-ref")?);
+            }
+            _ => {
+                if a.starts_with("--") {
+                    return Err(format!("unknown flag {}", a));
+                }
+                return Err(format!("unexpected arg {}", a));
+            }
+        }
+    }
+    let runtime_root = runtime_root.unwrap_or_else(default_runtime_root);
+    let run_id = run_id.ok_or("missing value for --run-id")?;
+    let tool_id = tool_id.ok_or("missing value for --tool-id")?;
+    let reason = reason.ok_or("missing value for --reason")?;
+    Ok(OperatorApproveArgs {
+        runtime_root,
+        run_id,
+        tool_or_action_id: tool_id,
+        reason,
+        input_ref,
+    })
+}
+
+fn parse_operator_learnings_append_args_from<I>(
+    mut it: I,
+) -> Result<OperatorLearningsAppendArgs, String>
+where
+    I: Iterator<Item = String>,
+{
+    let mut runtime_root: Option<PathBuf> = None;
+    let mut skill_id: Option<String> = None;
+    let mut learning_text: Option<String> = None;
+    let mut tags: Option<String> = None;
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--runtime" => {
+                runtime_root = Some(PathBuf::from(
+                    it.next().ok_or("missing value for --runtime")?,
+                ));
+            }
+            "--skill-id" => {
+                if skill_id.is_some() {
+                    return Err("multiple values provided for --skill-id".to_string());
+                }
+                skill_id = Some(it.next().ok_or("missing value for --skill-id")?);
+            }
+            "--learning-text" | "--text" => {
+                if learning_text.is_some() {
+                    return Err("multiple values provided for --learning-text".to_string());
+                }
+                learning_text = Some(it.next().ok_or("missing value for --learning-text")?);
+            }
+            "--tags" => {
+                if tags.is_some() {
+                    return Err("multiple values provided for --tags".to_string());
+                }
+                tags = Some(it.next().ok_or("missing value for --tags")?);
+            }
+            _ => {
+                if a.starts_with("--") {
+                    return Err(format!("unknown flag {}", a));
+                }
+                return Err(format!("unexpected arg {}", a));
+            }
+        }
+    }
+    let runtime_root = runtime_root.unwrap_or_else(default_runtime_root);
+    let skill_id = skill_id.ok_or("missing value for --skill-id")?;
+    let learning_text = learning_text.ok_or("missing value for --learning-text")?;
+    Ok(OperatorLearningsAppendArgs {
+        runtime_root,
+        skill_id,
+        learning_text,
+        tags,
+    })
+}
+
+fn parse_operator_replay_verify_args_from<I>(mut it: I) -> Result<OperatorReplayVerifyArgs, String>
+where
+    I: Iterator<Item = String>,
+{
+    let mut runtime_root: Option<PathBuf> = None;
+    let mut run_id: Option<String> = None;
+    let mut capsule_ref: Option<String> = None;
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--runtime" => {
+                runtime_root = Some(PathBuf::from(
+                    it.next().ok_or("missing value for --runtime")?,
+                ));
+            }
+            "--run-id" => {
+                if run_id.is_some() {
+                    return Err("multiple values provided for --run-id".to_string());
+                }
+                run_id = Some(it.next().ok_or("missing value for --run-id")?);
+            }
+            "--capsule-ref" | "--capsule" => {
+                if capsule_ref.is_some() {
+                    return Err("multiple values provided for --capsule-ref".to_string());
+                }
+                capsule_ref = Some(it.next().ok_or("missing value for --capsule-ref")?);
+            }
+            _ => {
+                if a.starts_with("--") {
+                    return Err(format!("unknown flag {}", a));
+                }
+                return Err(format!("unexpected arg {}", a));
+            }
+        }
+    }
+    if run_id.is_some() && capsule_ref.is_some() {
+        return Err("provide either --run-id or --capsule-ref, not both".to_string());
+    }
+    if run_id.is_none() && capsule_ref.is_none() {
+        return Err("missing value for --run-id or --capsule-ref".to_string());
+    }
+    Ok(OperatorReplayVerifyArgs {
+        runtime_root: runtime_root.unwrap_or_else(default_runtime_root),
+        run_id,
+        capsule_ref,
+    })
+}
+
+fn parse_operator_capsule_export_args_from<I>(
+    mut it: I,
+) -> Result<OperatorCapsuleExportArgs, String>
+where
+    I: Iterator<Item = String>,
+{
+    let mut runtime_root: Option<PathBuf> = None;
+    let mut run_id: Option<String> = None;
+    let mut capsule_ref: Option<String> = None;
+    let mut out: Option<PathBuf> = None;
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--runtime" => {
+                runtime_root = Some(PathBuf::from(
+                    it.next().ok_or("missing value for --runtime")?,
+                ));
+            }
+            "--run-id" => {
+                if run_id.is_some() {
+                    return Err("multiple values provided for --run-id".to_string());
+                }
+                run_id = Some(it.next().ok_or("missing value for --run-id")?);
+            }
+            "--capsule-ref" | "--capsule" => {
+                if capsule_ref.is_some() {
+                    return Err("multiple values provided for --capsule-ref".to_string());
+                }
+                capsule_ref = Some(it.next().ok_or("missing value for --capsule-ref")?);
+            }
+            "--out" => {
+                if out.is_some() {
+                    return Err("multiple values provided for --out".to_string());
+                }
+                out = Some(PathBuf::from(it.next().ok_or("missing value for --out")?));
+            }
+            _ => {
+                if a.starts_with("--") {
+                    return Err(format!("unknown flag {}", a));
+                }
+                return Err(format!("unexpected arg {}", a));
+            }
+        }
+    }
+    if run_id.is_some() && capsule_ref.is_some() {
+        return Err("provide either --run-id or --capsule-ref, not both".to_string());
+    }
+    if run_id.is_none() && capsule_ref.is_none() {
+        return Err("missing value for --run-id or --capsule-ref".to_string());
+    }
+    let out = out.ok_or("missing value for --out")?;
+    Ok(OperatorCapsuleExportArgs {
+        runtime_root: runtime_root.unwrap_or_else(default_runtime_root),
+        run_id,
+        capsule_ref,
+        out,
+    })
+}
+
 pub(crate) fn parse_command() -> Result<Command, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Some(first) = args.first() {
@@ -501,6 +731,44 @@ pub(crate) fn parse_command() -> Result<Command, String> {
                 _ => return Err(format!("unknown capsule subcommand {}", sub)),
             }
         }
+        if first == "operator" {
+            let sub = args.get(1).ok_or("missing operator subcommand")?.as_str();
+            match sub {
+                "approve" => {
+                    let parsed = parse_operator_approve_args_from(args.into_iter().skip(2))?;
+                    return Ok(Command::OperatorApprove(parsed));
+                }
+                "learnings" => {
+                    let learnings_sub = args
+                        .get(2)
+                        .ok_or("missing operator learnings subcommand")?
+                        .as_str();
+                    match learnings_sub {
+                        "append" => {
+                            let parsed = parse_operator_learnings_append_args_from(
+                                args.into_iter().skip(3),
+                            )?;
+                            return Ok(Command::OperatorLearningsAppend(parsed));
+                        }
+                        _ => {
+                            return Err(format!(
+                                "unknown operator learnings subcommand {}",
+                                learnings_sub
+                            ))
+                        }
+                    }
+                }
+                "replay-verify" => {
+                    let parsed = parse_operator_replay_verify_args_from(args.into_iter().skip(2))?;
+                    return Ok(Command::OperatorReplayVerify(parsed));
+                }
+                "capsule-export" => {
+                    let parsed = parse_operator_capsule_export_args_from(args.into_iter().skip(2))?;
+                    return Ok(Command::OperatorCapsuleExport(parsed));
+                }
+                _ => return Err(format!("unknown operator subcommand {}", sub)),
+            }
+        }
     }
 
     let run_args = parse_run_args_from(args.into_iter())?;
@@ -522,5 +790,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Approve(args) => run_approve(args),
         Command::Learn(args) => run_learn(args),
         Command::CapsuleExport(args) => run_capsule_export(args),
+        Command::OperatorApprove(args) => run_operator_approve(args),
+        Command::OperatorLearningsAppend(args) => run_operator_learnings_append(args),
+        Command::OperatorReplayVerify(args) => run_operator_replay_verify(args),
+        Command::OperatorCapsuleExport(args) => run_operator_capsule_export(args),
     }
 }

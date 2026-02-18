@@ -517,6 +517,40 @@ pub(crate) enum AuditEvent {
         export_hash: String,
         export_path: String,
     },
+    OperatorActionRequested {
+        action: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_ref: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason_hash: Option<String>,
+    },
+    OperatorActionRefused {
+        action: String,
+        reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_ref: Option<String>,
+    },
+    OperatorActionCompleted {
+        action: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_ref: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        artifact_ref: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        artifact_hash: Option<String>,
+    },
 
     // Stage 5 events
     SkillSelected {

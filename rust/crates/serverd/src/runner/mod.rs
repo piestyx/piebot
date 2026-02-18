@@ -232,7 +232,7 @@ fn execute_one_tick(
         },
     )?;
 
-    let state_path = runtime_root.join("state").join("gsama_state.json");
+    let state_path = runtime_root.join("state").join("kernel_state.json");
     let state = load_or_init(&state_path)?;
     let current_hash = state_hash(&state);
     if let Some(ref mut collector) = capsule {
@@ -308,7 +308,7 @@ fn execute_one_tick(
 pub(crate) fn run_null(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(args.runtime_root.join("logs"))?;
     std::fs::create_dir_all(args.runtime_root.join("state"))?;
-    let state_path = args.runtime_root.join("state").join("gsama_state.json");
+    let state_path = args.runtime_root.join("state").join("kernel_state.json");
     let (initial_state_hash, initial_state_error) = match load_or_init(&state_path) {
         Ok(state) => (state_hash(&state), None),
         Err(_) => ("state_hash_error".to_string(), Some("state_load_failed")),
@@ -661,7 +661,7 @@ pub(crate) fn run_null(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 pub(crate) fn run_route(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(args.runtime_root.join("logs"))?;
     std::fs::create_dir_all(args.runtime_root.join("state"))?;
-    let state_path = args.runtime_root.join("state").join("gsama_state.json");
+    let state_path = args.runtime_root.join("state").join("kernel_state.json");
     let (initial_state_hash, initial_state_error) = match load_or_init(&state_path) {
         Ok(state) => (state_hash(&state), None),
         Err(_) => ("state_hash_error".to_string(), Some("state_load_failed")),
