@@ -109,6 +109,31 @@ make stage-gate
 - `TOOLS_ARM=1` — arms tools that require arming or are high‑risk (default: off)
 - `OPEN_MEMORY_ENABLE=1` — enables OpenMemory mirror writes (default: off)
 
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Operator TUI                         │
+│              (read‑only, no authority)                  │
+└────────────────────────────┬────────────────────────────┘
+                             │ spawns
+                             ▼
+┌─────────────────────────────────────────────────────────┐
+│                    serverd (Rust)                       │
+│           Authoritative Control Plane                   │
+├───────────────┬─────────────┬─────────────┬─────────────┤
+│ State (GSAMA) │    Memory   │    Tools    │    Audit    │
+├───────────────┼─────────────┼─────────────┼─────────────┤
+│   Retrieval   │    Lenses   │    Modes    │  Contracts  │
+└───────┴───────┴──────┴──────┴──────┴──────┴──────┴──────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────┐
+│              Provider (MockProvider)                    │
+│                 (untrusted worker)                      │
+└─────────────────────────────────────────────────────────┘
+```
+
 ## License
 
 See LICENSE file.
