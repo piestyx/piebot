@@ -3,7 +3,7 @@ use crate::audit::{
     append_event, filter_events_for_run, read_audit_events as read_audit_events_raw, succeed_run,
     AuditEvent, AuditReadError,
 };
-use crate::cli::{ApproveArgs, CapsuleExportArgs, LearnArgs};
+use crate::command::{ApproveArgs, CapsuleExportArgs, LearnArgs};
 use crate::tools::policy::{TOOL_APPROVAL_REQUEST_SCHEMA, TOOL_APPROVAL_SCHEMA};
 use crate::tools::ToolId;
 use pie_audit_log::AuditAppender;

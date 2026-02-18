@@ -5,9 +5,14 @@ edition = "2021"
 
 [dependencies]
 pie_common = { path = "../common" }
+pie_audit_log = { path = "../audit_log" }
 pie_kernel_state = { path = "../kernel_state" }
+gsama_core = { path = "../gsama_core" }
+gsama_encoder = { path = "../gsama_encoder" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+regex = "1"
+tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
 
 [features]

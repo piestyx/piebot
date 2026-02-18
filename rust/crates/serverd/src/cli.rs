@@ -4,22 +4,10 @@ use crate::mutations::{run_approve, run_capsule_export, run_learn};
 use crate::runner::{run_ingest, run_null, run_replay, run_route, run_verify};
 use pie_kernel_state::StateDelta;
 use std::path::PathBuf;
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Mode {
-    Null,
-    Route,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Args {
-    pub(crate) runtime_root: PathBuf,
-    pub(crate) delta: StateDelta,
-    pub(crate) ticks: u64,
-    pub(crate) mode: Mode,
-    pub(crate) skill_id: Option<String>,
-    pub(crate) mode_profile: Option<String>,
-}
+use crate::command::{
+    ApproveArgs, Args, CapsuleExportArgs, IngestArgs, InputSource, LearnArgs, Mode, ReplayArgs,
+    VerifyArgs,
+};
 
 pub(crate) enum Command {
     Run(Args),
@@ -30,46 +18,6 @@ pub(crate) enum Command {
     Approve(ApproveArgs),
     Learn(LearnArgs),
     CapsuleExport(CapsuleExportArgs),
-}
-
-pub(crate) struct VerifyArgs {
-    pub(crate) runtime_root: PathBuf,
-    pub(crate) verify_memory: bool,
-    pub(crate) run_id: Option<String>,
-}
-pub(crate) struct IngestArgs {
-    pub(crate) runtime_root: PathBuf,
-    pub(crate) source: InputSource,
-}
-
-pub(crate) struct ReplayArgs {
-    pub(crate) runtime_root: PathBuf,
-    pub(crate) task_id: String,
-}
-pub(crate) struct ApproveArgs {
-    pub(crate) runtime_root: PathBuf,
-    pub(crate) tool_id: String,
-    pub(crate) input_ref: String,
-    pub(crate) run_id: Option<String>,
-}
-
-pub(crate) struct LearnArgs {
-    pub(crate) runtime_root: PathBuf,
-    pub(crate) text: String,
-    pub(crate) tags: Option<String>,
-    pub(crate) source: Option<String>,
-}
-
-pub(crate) struct CapsuleExportArgs {
-    pub(crate) runtime_root: PathBuf,
-    pub(crate) run_id: String,
-    pub(crate) out: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum InputSource {
-    Stdin,
-    File(PathBuf),
 }
 
 fn default_runtime_root() -> PathBuf {

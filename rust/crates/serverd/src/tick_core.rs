@@ -91,7 +91,7 @@ pub(crate) fn tick_core(
     intent: &Intent,
     request_hash: &str,
     artifact_refs: Vec<String>,
-    state: pie_state::GsamaState,
+    state: pie_kernel_state::KernelState,
     working_memory: &mut WorkingMemory,
     last_state_hash: &str,
     mut capsule: Option<&mut crate::capsule::run_capsule_collector::RunCapsuleCollector>,
