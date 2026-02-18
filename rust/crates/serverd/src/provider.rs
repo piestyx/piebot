@@ -1,5 +1,5 @@
-use crate::tools::execute::{TOOL_CALL_SCHEMA, TOOL_INPUT_NOOP_SCHEMA};
 use crate::ref_utils::is_safe_token;
+use crate::tools::execute::{TOOL_CALL_SCHEMA, TOOL_INPUT_NOOP_SCHEMA};
 use pie_common::{canonical_json_bytes, sha256_bytes};
 use serde::{Deserialize, Serialize};
 
@@ -46,7 +46,6 @@ impl std::fmt::Display for ProviderId {
         write!(f, "{}", self.0)
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -253,6 +253,92 @@ fn operator_approve_unknown_run_refuses_fail_closed() {
     assert_eq!(count_events(&events, "operator_action_requested"), 1);
     assert_eq!(count_events(&events, "operator_action_refused"), 1);
 }
+#[test]
+fn operator_refuse_marks_pending_approval_and_audits_lifecycle() {
+    let runtime_root = std::env::temp_dir().join(format!("pie_operator_refuse_{}", Uuid::new_v4()));
+    fs::create_dir_all(&runtime_root).expect("create runtime root");
+    let run_id = "sha256:1212121212121212121212121212121212121212121212121212121212121212";
+    let tool_id = "tools.noop";
+    let request_hash = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+    let input_ref = "sha256:3434343434343434343434343434343434343434343434343434343434343434";
+    let approval_ref = write_approval_request(&runtime_root, tool_id, request_hash, input_ref);
+    write_run_with_tool_approval(&runtime_root, run_id, tool_id, &approval_ref, request_hash);
+
+    let out = run_serverd_operator(
+        &runtime_root,
+        &[
+            "refuse",
+            "--run-id",
+            run_id,
+            "--tool-id",
+            tool_id,
+            "--reason",
+            "operator denied request",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "operator refuse failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let value: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("operator refuse output not json");
+    assert_eq!(value.get("ok").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        value.get("approval_ref").and_then(|v| v.as_str()),
+        Some(approval_ref.as_str())
+    );
+
+    let events = read_event_payloads(&runtime_root);
+    assert!(count_events(&events, "operator_action_requested") >= 1);
+    let refused_event = events
+        .iter()
+        .find(|event| {
+            event.get("event_type").and_then(|v| v.as_str()) == Some("operator_action_refused")
+                && event.get("action").and_then(|v| v.as_str()) == Some("operator_refuse")
+                && event.get("reason").and_then(|v| v.as_str()) == Some("operator_refused")
+        })
+        .expect("missing operator_refuse refused event");
+    assert_eq!(
+        refused_event.get("target_ref").and_then(|v| v.as_str()),
+        Some(approval_ref.as_str())
+    );
+    let completed_event = events
+        .iter()
+        .find(|event| {
+            event.get("event_type").and_then(|v| v.as_str()) == Some("operator_action_completed")
+                && event.get("action").and_then(|v| v.as_str()) == Some("operator_refuse")
+        })
+        .expect("missing operator_refuse completed event");
+    assert_eq!(
+        completed_event.get("artifact_ref").and_then(|v| v.as_str()),
+        Some(approval_ref.as_str())
+    );
+
+    let out_repeat = run_serverd_operator(
+        &runtime_root,
+        &[
+            "refuse",
+            "--run-id",
+            run_id,
+            "--tool-id",
+            tool_id,
+            "--reason",
+            "operator denied request",
+        ],
+    );
+    assert!(!out_repeat.status.success(), "repeat refuse should fail");
+    let repeat_value: serde_json::Value =
+        serde_json::from_slice(&out_repeat.stdout).expect("repeat refuse output not json");
+    assert_eq!(
+        repeat_value.get("ok").and_then(|v| v.as_bool()),
+        Some(false)
+    );
+    assert_eq!(
+        repeat_value.get("error").and_then(|v| v.as_str()),
+        Some("tool_or_action_id_not_pending")
+    );
+}
 
 #[test]
 fn operator_learnings_append_deterministic_hash_across_runtimes() {
@@ -359,7 +445,10 @@ fn operator_replay_verify_stable_for_fixture_run_and_reports_mismatch() {
     let verify_one: serde_json::Value =
         serde_json::from_slice(&out_verify_one.stdout).expect("verify one output not json");
     assert_eq!(verify_one.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(verify_one.get("pass").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(
+        verify_one.get("pass").and_then(|v| v.as_bool()),
+        Some(false)
+    );
     assert_eq!(
         verify_one
             .get("mismatch_location")

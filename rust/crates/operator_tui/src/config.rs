@@ -8,7 +8,6 @@ pub(crate) const TAG_MAX_LEN: usize = 12;
 pub(crate) const TAG_MIN_LEN: usize = 8;
 pub(crate) const MAX_PROCESS_OUTPUT_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_PROCESS_LINES: usize = 2000;
-pub(crate) const ACTION_COUNT: usize = 5;
 
 pub(crate) fn supports_truecolor() -> bool {
     env::var("COLORTERM")

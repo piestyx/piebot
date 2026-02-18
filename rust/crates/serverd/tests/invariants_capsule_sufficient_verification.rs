@@ -96,7 +96,10 @@ fn run_capsule_final_state_is_consistent_with_verify_for_same_run() {
         fs::read(artifact_path(&runtime_root, "run_capsules", capsule_ref)).expect("read capsule");
     let capsule: serde_json::Value = serde_json::from_slice(&capsule_bytes).expect("capsule json");
 
-    assert_eq!(capsule.get("schema").and_then(|v| v.as_str()), Some(RUN_CAPSULE_SCHEMA));
+    assert_eq!(
+        capsule.get("schema").and_then(|v| v.as_str()),
+        Some(RUN_CAPSULE_SCHEMA)
+    );
     assert_eq!(
         capsule
             .get("run")

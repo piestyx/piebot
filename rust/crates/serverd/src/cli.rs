@@ -1,12 +1,12 @@
 use crate::command::{
     ApproveArgs, Args, CapsuleExportArgs, IngestArgs, InputSource, LearnArgs, Mode,
     OperatorApproveArgs, OperatorCapsuleExportArgs, OperatorLearningsAppendArgs,
-    OperatorReplayVerifyArgs, ReplayArgs, VerifyArgs,
+    OperatorRefuseArgs, OperatorReplayVerifyArgs, ReplayArgs, VerifyArgs,
 };
 use crate::mutations::{run_approve, run_capsule_export, run_learn};
 use crate::operator_actions::{
     run_operator_approve, run_operator_capsule_export, run_operator_learnings_append,
-    run_operator_replay_verify,
+    run_operator_refuse, run_operator_replay_verify,
 };
 use crate::runner::{run_ingest, run_null, run_replay, run_route, run_verify};
 use crate::runtime::explain::run_explain;
@@ -24,6 +24,7 @@ pub(crate) enum Command {
     Learn(LearnArgs),
     CapsuleExport(CapsuleExportArgs),
     OperatorApprove(OperatorApproveArgs),
+    OperatorRefuse(OperatorRefuseArgs),
     OperatorLearningsAppend(OperatorLearningsAppendArgs),
     OperatorReplayVerify(OperatorReplayVerifyArgs),
     OperatorCapsuleExport(OperatorCapsuleExportArgs),
@@ -534,6 +535,59 @@ where
         input_ref,
     })
 }
+fn parse_operator_refuse_args_from<I>(mut it: I) -> Result<OperatorRefuseArgs, String>
+where
+    I: Iterator<Item = String>,
+{
+    let mut runtime_root: Option<PathBuf> = None;
+    let mut run_id: Option<String> = None;
+    let mut tool_id: Option<String> = None;
+    let mut reason: Option<String> = None;
+
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--runtime" => {
+                runtime_root = Some(PathBuf::from(
+                    it.next().ok_or("missing value for --runtime")?,
+                ));
+            }
+            "--run-id" => {
+                if run_id.is_some() {
+                    return Err("multiple values provided for --run-id".to_string());
+                }
+                run_id = Some(it.next().ok_or("missing value for --run-id")?);
+            }
+            "--tool-id" => {
+                if tool_id.is_some() {
+                    return Err("multiple values provided for --tool-id".to_string());
+                }
+                tool_id = Some(it.next().ok_or("missing value for --tool-id")?);
+            }
+            "--reason" => {
+                if reason.is_some() {
+                    return Err("multiple values provided for --reason".to_string());
+                }
+                reason = Some(it.next().ok_or("missing value for --reason")?);
+            }
+            _ => {
+                if a.starts_with("--") {
+                    return Err(format!("unknown flag {}", a));
+                }
+                return Err(format!("unexpected arg {}", a));
+            }
+        }
+    }
+    let runtime_root = runtime_root.unwrap_or_else(default_runtime_root);
+    let run_id = run_id.ok_or("missing value for --run-id")?;
+    let tool_id = tool_id.ok_or("missing value for --tool-id")?;
+    let reason = reason.ok_or("missing value for --reason")?;
+    Ok(OperatorRefuseArgs {
+        runtime_root,
+        run_id,
+        tool_or_action_id: tool_id,
+        reason,
+    })
+}
 
 fn parse_operator_learnings_append_args_from<I>(
     mut it: I,
@@ -738,6 +792,10 @@ pub(crate) fn parse_command() -> Result<Command, String> {
                     let parsed = parse_operator_approve_args_from(args.into_iter().skip(2))?;
                     return Ok(Command::OperatorApprove(parsed));
                 }
+                "refuse" => {
+                    let parsed = parse_operator_refuse_args_from(args.into_iter().skip(2))?;
+                    return Ok(Command::OperatorRefuse(parsed));
+                }
                 "learnings" => {
                     let learnings_sub = args
                         .get(2)
@@ -791,6 +849,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Learn(args) => run_learn(args),
         Command::CapsuleExport(args) => run_capsule_export(args),
         Command::OperatorApprove(args) => run_operator_approve(args),
+        Command::OperatorRefuse(args) => run_operator_refuse(args),
         Command::OperatorLearningsAppend(args) => run_operator_learnings_append(args),
         Command::OperatorReplayVerify(args) => run_operator_replay_verify(args),
         Command::OperatorCapsuleExport(args) => run_operator_capsule_export(args),

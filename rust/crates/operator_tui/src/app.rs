@@ -1,10 +1,10 @@
 use crate::commands::{handle_log_line, stop_process};
-use crate::config::{ACTION_COUNT, TICK_MILLIS};
+use crate::config::TICK_MILLIS;
 use crate::data::audit_read::apply_audit_filter;
 use crate::data::runtime::{list_json_files, path_name, validate_runtime_root};
-use crate::model::{ActionsFocus, App, LogsFocus, Tab, Theme};
+use crate::model::{App, LogsFocus, Tab, Theme};
 use crate::tabs;
-use crate::tabs::actions::{actions_focus_for_action, actions_focus_is_input};
+use crate::tabs::actions::operator_prompt_active;
 use crate::tabs::run::run_move_selection;
 use crate::ui::draw_ui;
 use crossterm::event::{self, Event, KeyCode};
@@ -89,8 +89,11 @@ pub(crate) fn jump_to_top(app: &mut App) {
         Tab::Skills => app.skills.selected = 0,
         Tab::Logs => app.logs.selected = 0,
         Tab::Actions => {
-            app.actions.selected_action = 0;
-            app.actions.focus = ActionsFocus::ApproveTool;
+            if app.actions.approvals_open {
+                app.actions.selected_approval = 0;
+            } else {
+                app.actions.selected_run = 0;
+            }
         }
     }
     if app.active_tab == Tab::Logs {
@@ -120,7 +123,13 @@ pub(crate) fn jump_to_bottom(app: &mut App) {
         Tab::Explain => app.explain.entries.len(),
         Tab::Skills => app.skills.entries.len(),
         Tab::Logs => app.logs.entries.len(),
-        Tab::Actions => ACTION_COUNT,
+        Tab::Actions => {
+            if app.actions.approvals_open {
+                app.actions.pending_approvals.len()
+            } else {
+                app.actions.runs.len()
+            }
+        }
     };
     if len == 0 {
         return;
@@ -139,8 +148,11 @@ pub(crate) fn jump_to_bottom(app: &mut App) {
         Tab::Skills => app.skills.selected = last,
         Tab::Logs => app.logs.selected = last,
         Tab::Actions => {
-            app.actions.selected_action = last;
-            app.actions.focus = actions_focus_for_action(last);
+            if app.actions.approvals_open {
+                app.actions.selected_approval = last;
+            } else {
+                app.actions.selected_run = last;
+            }
         }
     }
     if app.active_tab == Tab::Logs {
@@ -178,7 +190,16 @@ pub(crate) fn move_selection(app: &mut App, delta: i32) {
         Tab::Explain => (app.explain.selected, app.explain.entries.len()),
         Tab::Skills => (app.skills.selected, app.skills.entries.len()),
         Tab::Logs => (app.logs.selected, app.logs.entries.len()),
-        Tab::Actions => (app.actions.selected_action, ACTION_COUNT),
+        Tab::Actions => {
+            if app.actions.approvals_open {
+                (
+                    app.actions.selected_approval,
+                    app.actions.pending_approvals.len(),
+                )
+            } else {
+                (app.actions.selected_run, app.actions.runs.len())
+            }
+        }
         Tab::Run => (0, 0),
     };
     if len == 0 {
@@ -200,10 +221,10 @@ pub(crate) fn move_selection(app: &mut App, delta: i32) {
         Tab::Skills => app.skills.selected = next as usize,
         Tab::Logs => app.logs.selected = next as usize,
         Tab::Actions => {
-            app.actions.selected_action = next as usize;
-            if prev != next as usize {
-                app.actions.focus = actions_focus_for_action(next as usize);
-                app.actions.error = None;
+            if app.actions.approvals_open {
+                app.actions.selected_approval = next as usize;
+            } else {
+                app.actions.selected_run = next as usize;
             }
         }
         Tab::Run => {}
@@ -221,7 +242,7 @@ pub(crate) fn move_selection(app: &mut App, delta: i32) {
 }
 
 fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) {
-    if app.active_tab == Tab::Actions && actions_focus_is_input(app.actions.focus) {
+    if app.active_tab == Tab::Actions && operator_prompt_active(app) {
         if tabs::handle_current_tab_key(app, key) {
             return;
         }
@@ -344,6 +365,7 @@ impl App {
         self.refresh_explains();
         self.refresh_skills();
         self.refresh_logs();
+        tabs::actions::refresh_operator_snapshot(self);
     }
 
     pub(crate) fn refresh_audit(&mut self) {
@@ -546,7 +568,7 @@ impl App {
             .map(|entry| entry.path())
             .filter(|path| path.is_dir())
             .collect();
-        dirs.sort_by(|a, b| path_name(a).cmp(&path_name(b)));
+        dirs.sort_by_key(|a| path_name(a));
         for path in dirs {
             let dir_name = path
                 .file_name()
@@ -633,7 +655,7 @@ impl App {
                 }
             }
         }
-        files.sort_by(|a, b| path_name(a).cmp(&path_name(b)));
+        files.sort_by_key(|a| path_name(a));
         self.logs.entries = files;
         clamp_selection(&mut self.logs.selected, self.logs.entries.len());
     }

@@ -91,12 +91,16 @@ fn replay_parity_holds_across_distinct_runtime_roots() {
         .expect("missing task_request.task_id");
 
     let task_a = runtime_a.join("tasks").join(format!("{}.json", task_id));
-    let status_a = runtime_a.join("tasks").join(format!("{}.status.json", task_id));
+    let status_a = runtime_a
+        .join("tasks")
+        .join(format!("{}.status.json", task_id));
     assert!(task_a.is_file(), "source task file missing");
     assert!(status_a.is_file(), "source task status file missing");
 
     let task_b = runtime_b.join("tasks").join(format!("{}.json", task_id));
-    let status_b = runtime_b.join("tasks").join(format!("{}.status.json", task_id));
+    let status_b = runtime_b
+        .join("tasks")
+        .join(format!("{}.status.json", task_id));
     copy_file(&task_a, &task_b);
     copy_file(&status_a, &status_b);
 
@@ -125,7 +129,8 @@ fn replay_parity_holds_across_distinct_runtime_roots() {
     );
 
     let status_b_value: serde_json::Value =
-        serde_json::from_slice(&fs::read(&status_b).expect("read status_b")).expect("status_b json");
+        serde_json::from_slice(&fs::read(&status_b).expect("read status_b"))
+            .expect("status_b json");
     assert_eq!(
         status_b_value.get("status").and_then(|v| v.as_str()),
         Some("applied")

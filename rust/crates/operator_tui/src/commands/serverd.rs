@@ -1,7 +1,6 @@
 use crate::config::{MAX_PROCESS_LINES, MAX_PROCESS_OUTPUT_BYTES};
 use crate::model::{App, LogLine, RingBuffer, StreamKind};
 use serde_json::Value;
-use std::env;
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -9,27 +8,82 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-pub(crate) fn resolve_serverd_binary() -> Result<PathBuf, Vec<PathBuf>> {
-    if let Ok(bin) = env::var("PIEBOT_SERVERD_BIN") {
-        let path = PathBuf::from(bin);
-        let attempted = vec![path.clone()];
+pub(crate) fn resolve_serverd_binary(
+    configured: Option<&PathBuf>,
+) -> Result<PathBuf, Vec<PathBuf>> {
+    let mut attempted = Vec::new();
+    // A) Explicit CLI override (always wins)
+    if let Some(path) = configured {
+        attempted.push(path.clone());
         if path.is_file() {
-            return Ok(path);
+            return Ok(path.clone());
         }
         return Err(attempted);
     }
+    // B) Cargo-provided binary path
+    if let Some(bin) = option_env!("CARGO_BIN_EXE_serverd") {
+        let path = PathBuf::from(bin);
+        attempted.push(path.clone());
+        return Ok(path);
+    }
+    // C) PATH fallback (no which; let spawn fail if missing)
+    attempted.push(PathBuf::from("serverd"));
+    Ok(PathBuf::from("serverd"))
+}
 
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let path = cwd
-        .join("rust")
-        .join("target")
-        .join("debug")
-        .join("serverd");
-    let attempted = vec![path.clone()];
-    if path.is_file() {
-        Ok(path)
+pub(crate) fn run_serverd_operator(app: &App, args: &[&str]) -> Result<Value, String> {
+    let binary = resolve_serverd_binary(app.serverd_bin.as_ref()).map_err(|attempted| {
+        let mut message = String::from("serverd binary not found. attempted paths:");
+        for path in attempted {
+            message.push_str(&format!("\n - {}", path.display()));
+        }
+        message
+    })?;
+    let mut command = Command::new(binary);
+    command
+        .arg("operator")
+        .args(args)
+        .arg("--runtime")
+        .arg(&app.runtime_root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command
+        .output()
+        .map_err(|e| format!("failed to spawn serverd operator: {}", e))?;
+    let stdout_trimmed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr_trimmed = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let value: Value = serde_json::from_slice(&output.stdout).map_err(|_| {
+        format!(
+            "operator stdout is not valid json: {}",
+            truncate(&stdout_trimmed)
+        )
+    })?;
+    if output.status.success() {
+        return Ok(value);
+    }
+    let reason = value
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or("operator_command_failed");
+    Err(format!(
+        "{} | stderr: {}",
+        reason,
+        truncate(&stderr_trimmed)
+    ))
+}
+
+fn truncate(value: &str) -> String {
+    let max = 240;
+    if value.is_empty() {
+        return "(empty)".to_string();
+    }
+    let mut iter = value.chars();
+    let prefix: String = iter.by_ref().take(max).collect();
+    if iter.next().is_some() {
+        format!("{}...", prefix)
     } else {
-        Err(attempted)
+        prefix
     }
 }
 
@@ -94,14 +148,14 @@ pub(crate) fn launch_serverd(app: &mut App) {
     app.process.current_run_id = None;
     app.process.output = RingBuffer::new(MAX_PROCESS_OUTPUT_BYTES, MAX_PROCESS_LINES);
 
-    let binary = match resolve_serverd_binary() {
+    let binary = match resolve_serverd_binary(app.serverd_bin.as_ref()) {
         Ok(path) => path,
         Err(attempted) => {
             let mut message = String::from("serverd binary not found. attempted paths:");
             for path in attempted {
                 message.push_str(&format!("\n - {}", path.display()));
             }
-            message.push_str("\nTip: start from repo root or set PIEBOT_SERVERD_BIN");
+            message.push_str("\nTip: set --serverd-bin or ensure `serverd` is on PATH");
             app.run.error = Some(message);
             return;
         }
@@ -159,60 +213,6 @@ pub(crate) fn launch_serverd(app: &mut App) {
     app.process.child = Some(child);
     app.process.receiver = Some(receiver);
     app.process.running = true;
-    app.follow_audit = true;
-}
-
-pub(crate) fn spawn_serverd_action(app: &mut App, args: Vec<String>, label: &str) {
-    if app.process.running {
-        app.actions.error = Some("serverd already running".to_string());
-        return;
-    }
-    app.actions.error = None;
-    app.process.exit_status = None;
-    app.process.current_run_id = None;
-    app.process.output = RingBuffer::new(MAX_PROCESS_OUTPUT_BYTES, MAX_PROCESS_LINES);
-
-    let binary = match resolve_serverd_binary() {
-        Ok(path) => path,
-        Err(attempted) => {
-            let mut message = String::from("serverd binary not found. attempted paths:");
-            for path in attempted {
-                message.push_str(&format!("\n - {}", path.display()));
-            }
-            message.push_str("\nTip: start from repo root or set PIEBOT_SERVERD_BIN");
-            app.actions.error = Some(message);
-            return;
-        }
-    };
-
-    let mut cmd = Command::new(&binary);
-    cmd.args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(err) => {
-            app.actions.error = Some(format!("failed to spawn serverd: {}", err));
-            return;
-        }
-    };
-
-    let (sender, receiver) = mpsc::channel();
-    if let Some(stdout) = child.stdout.take() {
-        spawn_reader_thread(stdout, sender.clone(), StreamKind::Stdout);
-    }
-    if let Some(stderr) = child.stderr.take() {
-        spawn_reader_thread(stderr, sender.clone(), StreamKind::Stderr);
-    }
-
-    app.process.pid = Some(child.id());
-    app.process.start_time = Some(Instant::now());
-    app.process.child = Some(child);
-    app.process.receiver = Some(receiver);
-    app.process.running = true;
-    app.actions.last_action = Some(label.to_string());
     app.follow_audit = true;
 }
 

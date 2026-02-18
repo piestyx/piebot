@@ -70,6 +70,19 @@ cargo run -p serverd --manifest-path rust/Cargo.toml -- \
   explain --runtime runtime --run <run_id>
 ```
 
+Run operator TUI against a runtime root:
+
+```bash
+cargo run -p operator_tui --manifest-path rust/Cargo.toml -- --runtime runtime
+```
+
+If `serverd` is not discoverable via cargo/PATH, provide an explicit binary path:
+
+```bash
+cargo run -p operator_tui --manifest-path rust/Cargo.toml -- \
+  --runtime runtime --serverd-bin /absolute/path/to/serverd
+```
+
 ## Tests
 
 All tests:

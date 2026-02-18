@@ -4,7 +4,6 @@ use std::fs;
 use std::path::Path;
 use uuid::Uuid;
 
-
 pub fn serverd_exe() -> std::path::PathBuf {
     // This forces Cargo to provide the path to the built binary.
     // If it isn't provided, that means the binary target wasn't built for this test invocation.

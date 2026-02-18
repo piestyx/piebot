@@ -77,7 +77,6 @@ pub fn state_hash(state: &KernelState) -> String {
     sha256_bytes(&v)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

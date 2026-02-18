@@ -131,24 +131,34 @@ pub(crate) enum LogsFocus {
     Process,
     Files,
 }
-
+#[derive(Clone, Debug)]
+pub(crate) struct RunSummary {
+    pub(crate) run_id: String,
+    pub(crate) status: String,
+    pub(crate) final_state_hash: Option<String>,
+    pub(crate) capsule_ref: Option<String>,
+    pub(crate) verification_ref: Option<String>,
+    pub(crate) last_tick_index: Option<u64>,
+    pub(crate) start_line_index: usize,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct PendingApproval {
+    pub(crate) run_id: String,
+    pub(crate) tool_id: String,
+    pub(crate) approval_ref: String,
+    pub(crate) input_ref: Option<String>,
+    pub(crate) request_hash: Option<String>,
+    pub(crate) requested_tick_index: Option<u64>,
+    pub(crate) requested_line_index: usize,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ActionsFocus {
-    ApproveTool,
-    ApproveInput,
-    ApproveRunId,
-    ApproveSubmit,
+pub(crate) enum OperatorPrompt {
+    None,
+    ApproveReason,
+    RefuseReason,
+    ExportDest,
+    LearnSkillId,
     LearnText,
-    LearnTags,
-    LearnSource,
-    LearnSubmit,
-    VerifyRunId,
-    VerifySubmit,
-    ReplayRunId,
-    ReplaySubmit,
-    ExportRunId,
-    ExportOut,
-    ExportSubmit,
 }
 
 pub(crate) struct RunState {
@@ -161,20 +171,18 @@ pub(crate) struct RunState {
 }
 
 pub(crate) struct ActionsState {
-    pub(crate) focus: ActionsFocus,
-    pub(crate) selected_action: usize,
-    pub(crate) approve_tool_id: String,
-    pub(crate) approve_input_ref: String,
-    pub(crate) approve_run_id: String,
-    pub(crate) learn_text: String,
-    pub(crate) learn_tags: String,
-    pub(crate) learn_source: String,
-    pub(crate) verify_run_id: String,
-    pub(crate) replay_run_id: String,
-    pub(crate) export_run_id: String,
-    pub(crate) export_out: String,
+    pub(crate) runs: Vec<RunSummary>,
+    pub(crate) selected_run: usize,
+    pub(crate) pending_approvals: Vec<PendingApproval>,
+    pub(crate) selected_approval: usize,
+    pub(crate) approvals_open: bool,
+    pub(crate) prompt: OperatorPrompt,
+    pub(crate) prompt_input: String,
+    pub(crate) prompt_aux_input: String,
+    pub(crate) detail_open: bool,
+    pub(crate) last_output: Option<Value>,
     pub(crate) error: Option<String>,
-    pub(crate) last_action: Option<String>,
+    pub(crate) info: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -252,6 +260,7 @@ pub(crate) struct ProcessState {
 
 pub(crate) struct App {
     pub(crate) runtime_root: PathBuf,
+    pub(crate) serverd_bin: Option<PathBuf>,
     pub(crate) skills_dir: Option<PathBuf>,
     pub(crate) runtime_valid: bool,
     pub(crate) runtime_error: Option<String>,
@@ -281,16 +290,21 @@ pub(crate) struct App {
 }
 
 impl App {
-    pub(crate) fn new(runtime_root: PathBuf, skills_dir: Option<PathBuf>) -> Self {
+    pub(crate) fn new(
+        runtime_root: PathBuf,
+        skills_dir: Option<PathBuf>,
+        serverd_bin: Option<PathBuf>,
+    ) -> Self {
         let runtime_valid = validate_runtime_root(&runtime_root).is_ok();
         let runtime_error = validate_runtime_root(&runtime_root).err();
         let audit_path = runtime_root.join("logs").join("audit_rust.jsonl");
         Self {
             runtime_root,
+            serverd_bin,
             skills_dir,
             runtime_valid,
             runtime_error,
-            active_tab: Tab::Audit,
+            active_tab: Tab::Actions,
             run: RunState {
                 skill_ids: Vec::new(),
                 skill_selected: 0,
@@ -300,20 +314,18 @@ impl App {
                 error: None,
             },
             actions: ActionsState {
-                focus: ActionsFocus::ApproveTool,
-                selected_action: 0,
-                approve_tool_id: String::new(),
-                approve_input_ref: String::new(),
-                approve_run_id: String::new(),
-                learn_text: String::new(),
-                learn_tags: String::new(),
-                learn_source: String::new(),
-                verify_run_id: String::new(),
-                replay_run_id: String::new(),
-                export_run_id: String::new(),
-                export_out: String::new(),
+                runs: Vec::new(),
+                selected_run: 0,
+                pending_approvals: Vec::new(),
+                selected_approval: 0,
+                approvals_open: false,
+                prompt: OperatorPrompt::None,
+                prompt_input: String::new(),
+                prompt_aux_input: String::new(),
+                detail_open: false,
+                last_output: None,
                 error: None,
-                last_action: None,
+                info: None,
             },
             audit: AuditState {
                 path: audit_path,

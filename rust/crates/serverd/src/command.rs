@@ -60,6 +60,12 @@ pub struct OperatorApproveArgs {
     pub reason: String,
     pub input_ref: Option<String>,
 }
+pub struct OperatorRefuseArgs {
+    pub runtime_root: PathBuf,
+    pub run_id: String,
+    pub tool_or_action_id: String,
+    pub reason: String,
+}
 
 pub struct OperatorLearningsAppendArgs {
     pub runtime_root: PathBuf,

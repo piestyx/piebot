@@ -14,3 +14,5 @@ help:            ## Show this help
 run-tests:
 	cargo test -p serverd --manifest-path rust/Cargo.toml
 
+launch:
+	cargo run -p operator_tui --manifest-path rust/Cargo.toml -- --runtime runtime 

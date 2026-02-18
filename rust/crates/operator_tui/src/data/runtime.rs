@@ -21,7 +21,7 @@ pub(crate) fn list_json_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
         .map(|entry| entry.path())
         .filter(|path| path.is_file())
         .collect();
-    files.sort_by(|a, b| path_name(a).cmp(&path_name(b)));
+    files.sort_by_key(|a| path_name(a));
     Ok(files)
 }
 

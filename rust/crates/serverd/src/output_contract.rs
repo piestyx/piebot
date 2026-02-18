@@ -460,4 +460,3 @@ fn artifact_path(runtime_root: &Path, subdir: &str, artifact_ref: &str) -> PathB
         .join(subdir)
         .join(format!("{}.json", trimmed))
 }
-

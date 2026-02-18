@@ -1,9 +1,9 @@
-use crate::runtime::artifacts::write_json_artifact_atomic;
 use crate::audit::{
     append_event, fail_run, filter_events_for_run, read_audit_events, succeed_run, AuditEvent,
 };
+use crate::capsule::run_capsule::{write_run_capsule, RunCapsuleRun, RunCapsuleSkill};
+use crate::capsule::run_capsule_collector::RunCapsuleCollector;
 use crate::command::{Args, IngestArgs, InputSource, ReplayArgs, VerifyArgs};
-use crate::policy::context_policy::load_context_policy;
 use crate::lenses::load_lens_config;
 use crate::memory::{
     list_episode_chain, load_episode_head, load_memory_config, load_working_memory,
@@ -17,8 +17,9 @@ use crate::modes::{
     resolve_selected_mode_with_route, ModeApplyInput, ModeToolConstraints,
 };
 use crate::output_contract::load_output_contracts;
+use crate::policy::context_policy::load_context_policy;
+use crate::policy::workspace::load_workspace_policy;
 use crate::provider::{MockProvider, MockToolProvider, ModelProvider, NullProvider, ProviderError};
-use crate::task::queue::list_pending_tasks;
 use crate::redaction::{compile_regex_redactions, load_redaction_config};
 use crate::retrieval::load_retrieval_config;
 use crate::route::{
@@ -26,10 +27,10 @@ use crate::route::{
     RedactionContext, RetrievalContext, ToolPolicyContext,
 };
 use crate::router::load_router_config;
-use crate::capsule::run_capsule::{write_run_capsule, RunCapsuleRun, RunCapsuleSkill};
-use crate::capsule::run_capsule_collector::RunCapsuleCollector;
+use crate::runtime::artifacts::write_json_artifact_atomic;
 use crate::skills::load_skill_context;
 use crate::state_delta_artifact::{apply_delta_from_artifact, write_delta_artifact};
+use crate::task::queue::list_pending_tasks;
 use crate::task::task_status::{
     read_task_status, write_task_status_atomic, TaskStatus, TaskStatusKind, TASK_STATUS_SCHEMA,
 };
@@ -40,7 +41,6 @@ use crate::tick_core::{
     hash_canonical_value, hash_observation, observe, task_request_hash, tick_core,
 };
 use crate::tools::policy::load_policy_config;
-use crate::policy::workspace::load_workspace_policy;
 use pie_audit_log::{verify_log, AuditAppender};
 use pie_common::{canonical_json_bytes, sha256_bytes};
 use pie_kernel_state::{load_or_init, save, state_hash, StateDelta};

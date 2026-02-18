@@ -7,6 +7,7 @@ use pie_common::{canonical_json_bytes, sha256_bytes};
 use std::path::{Path, PathBuf};
 
 pub(crate) const OPERATOR_APPROVE_ACTION: &str = "operator_approve";
+pub(crate) const OPERATOR_REFUSE_ACTION: &str = "operator_refuse";
 pub(crate) const OPERATOR_LEARNINGS_APPEND_ACTION: &str = "operator_learnings_append";
 pub(crate) const OPERATOR_REPLAY_VERIFY_ACTION: &str = "operator_replay_verify";
 pub(crate) const OPERATOR_CAPSULE_EXPORT_ACTION: &str = "operator_capsule_export";

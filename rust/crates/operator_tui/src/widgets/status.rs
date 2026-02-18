@@ -1,5 +1,4 @@
 use crate::model::{App, Tab, Theme};
-use crate::tabs::actions::action_name;
 use crate::tabs::run::run_focus_label;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
@@ -102,7 +101,7 @@ pub(crate) fn draw_status(
             run_focus_label(app.run.focus)
         )));
         status.push(Span::raw(" | "));
-        status.push(Span::raw("tab/shift-tab focus"));
+        status.push(Span::raw("A approvals"));
         status.push(Span::raw(" | "));
         status.push(Span::raw("j/k change"));
         status.push(Span::raw(" | "));
@@ -110,16 +109,33 @@ pub(crate) fn draw_status(
         status.push(Span::raw(" | "));
         status.push(Span::raw("s stop"));
     } else if app.active_tab == Tab::Actions {
-        status.push(Span::raw(format!(
-            "action: {}",
-            action_name(app.actions.selected_action)
-        )));
-        status.push(Span::raw(" | "));
-        status.push(Span::raw("tab/shift-tab focus"));
+        status.push(Span::raw("A approvals"));
         status.push(Span::raw(" | "));
         status.push(Span::raw("j/k select"));
         status.push(Span::raw(" | "));
-        status.push(Span::raw("enter run"));
+        status.push(Span::raw("Enter detail"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("R verify"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("E export"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("Y/N approve/refuse"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("L learnings"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("R replay-verify"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("E export"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("Y approve"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("N refuse"));
+        status.push(Span::raw(" | "));
+        status.push(Span::raw("L learnings"));
+        if app.actions.prompt != crate::model::OperatorPrompt::None {
+            status.push(Span::raw(" | "));
+            status.push(Span::raw("prompt active"));
+        }
     } else if app.active_tab == Tab::Logs {
         status.push(Span::raw(
             "tab switch panel | j/k select file | pgup/pgdn scroll",

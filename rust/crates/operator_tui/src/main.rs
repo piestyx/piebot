@@ -19,8 +19,8 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (runtime_root, skills_dir) = parse_args_or_prompt()?;
-    let mut app = App::new(runtime_root, skills_dir);
+    let (runtime_root, skills_dir, serverd_bin) = parse_args_or_prompt()?;
+    let mut app = App::new(runtime_root, skills_dir, serverd_bin);
     app.refresh_all();
 
     enable_raw_mode()?;
@@ -36,16 +36,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     res
 }
 
-fn parse_args_or_prompt() -> Result<(PathBuf, Option<PathBuf>), Box<dyn std::error::Error>> {
+// Keep clippy happy (-D warnings) and keep signatures readable.
+type CliPaths = (PathBuf, Option<PathBuf>, Option<PathBuf>);
+
+fn parse_args_or_prompt() -> Result<CliPaths, Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
     let mut runtime_arg: Option<String> = None;
     let mut skills_dir: Option<String> = None;
+    let mut serverd_bin: Option<String> = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--runtime" => runtime_arg = args.next(),
             "--skills-dir" => skills_dir = args.next(),
+            "--serverd-bin" => serverd_bin = args.next(),
             "--help" | "-h" => {
-                println!("operator_tui --runtime <path> [--skills-dir <path>]");
+                println!(
+                    "operator_tui --runtime <path> [--skills-dir <path>] [--serverd-bin <path>]"
+                );
                 std::process::exit(0);
             }
             _ => {
@@ -67,5 +74,6 @@ fn parse_args_or_prompt() -> Result<(PathBuf, Option<PathBuf>), Box<dyn std::err
     };
     let runtime_root = PathBuf::from(runtime_path);
     let skills_dir = skills_dir.map(PathBuf::from);
-    Ok((runtime_root, skills_dir))
+    let serverd_bin = serverd_bin.map(PathBuf::from);
+    Ok((runtime_root, skills_dir, serverd_bin))
 }

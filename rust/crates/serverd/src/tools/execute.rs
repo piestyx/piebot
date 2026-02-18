@@ -1,8 +1,8 @@
 use super::policy::{PolicyConfig, PolicyOutcome, ToolPolicy, ToolPolicyInput};
 use super::{ToolError, ToolId, ToolRegistry, ToolSpec};
-use crate::runtime::artifacts::{artifact_filename, write_json_artifact_atomic};
 use crate::audit::{append_event, AuditEvent};
 use crate::policy::workspace::{enforce_workspace_path, WorkspaceContext};
+use crate::runtime::artifacts::{artifact_filename, write_json_artifact_atomic};
 use pie_audit_log::AuditAppender;
 use serde::{Deserialize, Serialize};
 use std::fs;

@@ -243,7 +243,8 @@ fn lens_candidates_cannot_bypass_context_namespace_policy() {
         "expected allowlisted candidate in lens outputs"
     );
     assert!(
-        got.iter().any(|v| v == &format!("denied_ctx/{}", denied_ref)),
+        got.iter()
+            .any(|v| v == &format!("denied_ctx/{}", denied_ref)),
         "expected denied candidate in lens outputs"
     );
 }
