@@ -70,7 +70,9 @@ impl RepoIndexConfig {
     }
 }
 
-pub(crate) fn load_repo_index_config(runtime_root: &Path) -> Result<RepoIndexConfig, RepoIndexError> {
+pub(crate) fn load_repo_index_config(
+    runtime_root: &Path,
+) -> Result<RepoIndexConfig, RepoIndexError> {
     let path = repo_index_config_path(runtime_root);
     if !path.exists() {
         return Ok(RepoIndexConfig::default());

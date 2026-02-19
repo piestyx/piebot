@@ -155,8 +155,11 @@ fn write_workspace_contents(runtime_root: &Path) {
     let workspace = runtime_root.join("workspace_data");
     fs::create_dir_all(workspace.join("src")).expect("create src");
     fs::create_dir_all(workspace.join("tests")).expect("create tests");
-    fs::write(workspace.join("src").join("lib.rs"), b"pub fn migrate() {}\n")
-        .expect("write lib.rs");
+    fs::write(
+        workspace.join("src").join("lib.rs"),
+        b"pub fn migrate() {}\n",
+    )
+    .expect("write lib.rs");
     fs::write(
         workspace.join("tests").join("port_repo_plan.rs"),
         b"#[test]\nfn plan_is_stable() {}\n",
@@ -316,7 +319,9 @@ fn deterministic_port_plan_across_runtime_roots() {
         )
     );
     assert_eq!(
-        port_plan_one.get("invariant_count").and_then(|v| v.as_u64()),
+        port_plan_one
+            .get("invariant_count")
+            .and_then(|v| v.as_u64()),
         Some(
             plan_value
                 .get("invariants")
@@ -326,7 +331,9 @@ fn deterministic_port_plan_across_runtime_roots() {
         )
     );
     assert_eq!(
-        port_plan_one.get("work_unit_count").and_then(|v| v.as_u64()),
+        port_plan_one
+            .get("work_unit_count")
+            .and_then(|v| v.as_u64()),
         Some(
             plan_value
                 .get("work_units")
@@ -341,9 +348,10 @@ fn deterministic_port_plan_across_runtime_roots() {
         .get("capsule_ref")
         .and_then(|v| v.as_str())
         .expect("capsule_ref missing");
-    let capsule_value: serde_json::Value =
-        serde_json::from_slice(&fs::read(artifact_path(&runtime_one, "run_capsules", capsule_ref)).expect("read capsule"))
-            .expect("capsule json");
+    let capsule_value: serde_json::Value = serde_json::from_slice(
+        &fs::read(artifact_path(&runtime_one, "run_capsules", capsule_ref)).expect("read capsule"),
+    )
+    .expect("capsule json");
     let context_refs = capsule_value
         .get("context")
         .and_then(|v| v.get("context_refs"))
@@ -407,7 +415,10 @@ fn deterministic_port_plan_across_runtime_roots() {
             break;
         }
     }
-    assert!(has_port_plan_tag, "missing gsama port_plan_ref anchoring tag");
+    assert!(
+        has_port_plan_tag,
+        "missing gsama port_plan_ref anchoring tag"
+    );
 }
 
 #[test]
@@ -472,17 +483,27 @@ fn replay_mode_uses_recorded_provider_artifact_without_provider_call() {
         .and_then(|v| v.as_str())
         .expect("replay request ref missing");
     assert_eq!(
-        replay_plan_event.get("request_ref").and_then(|v| v.as_str()),
+        replay_plan_event
+            .get("request_ref")
+            .and_then(|v| v.as_str()),
         Some(replay_request_ref)
     );
     assert!(
         artifact_path(&runtime_replay, "port_plan_requests", replay_request_ref).is_file(),
         "replay request artifact missing"
     );
-    let record_bytes = fs::read(artifact_path(&runtime_record, "port_plans", record_plan_ref))
-        .expect("read record plan bytes");
-    let replay_bytes = fs::read(artifact_path(&runtime_replay, "port_plans", replay_plan_ref))
-        .expect("read replay plan bytes");
+    let record_bytes = fs::read(artifact_path(
+        &runtime_record,
+        "port_plans",
+        record_plan_ref,
+    ))
+    .expect("read record plan bytes");
+    let replay_bytes = fs::read(artifact_path(
+        &runtime_replay,
+        "port_plans",
+        replay_plan_ref,
+    ))
+    .expect("read replay plan bytes");
     assert_eq!(record_bytes, replay_bytes);
     assert!(
         !find_events(&replay_events, "provider_response_artifact_loaded").is_empty(),
@@ -492,7 +513,8 @@ fn replay_mode_uses_recorded_provider_artifact_without_provider_call() {
 
 #[test]
 fn invalid_provider_payload_fails_closed() {
-    let runtime_root = std::env::temp_dir().join(format!("pie_port_plan_invalid_{}", Uuid::new_v4()));
+    let runtime_root =
+        std::env::temp_dir().join(format!("pie_port_plan_invalid_{}", Uuid::new_v4()));
     setup_runtime(&runtime_root);
 
     let out = run_serverd_route_with_envs(
@@ -532,7 +554,10 @@ fn multi_run_runtime_uses_latest_audit_repo_refs_when_repo_index_disabled() {
     );
 
     fs::write(
-        runtime_root.join("workspace_data").join("src").join("lib.rs"),
+        runtime_root
+            .join("workspace_data")
+            .join("src")
+            .join("lib.rs"),
         b"pub fn migrate_v2() {}\n",
     )
     .expect("write updated workspace for second run");
@@ -556,14 +581,18 @@ fn multi_run_runtime_uses_latest_audit_repo_refs_when_repo_index_disabled() {
         .and_then(|v| v.as_str())
         .expect("latest repo snapshot root hash missing")
         .to_string();
-    let repo_identity_events_before = find_events(&events_after_second, "repo_identity_written").len();
+    let repo_identity_events_before =
+        find_events(&events_after_second, "repo_identity_written").len();
     let repo_snapshot_events_before =
         find_events(&events_after_second, "repo_index_snapshot_written").len();
 
     write_repo_index_config_with_enabled(&runtime_root, false);
     write_retrieval_config_with_enabled(&runtime_root, false);
     fs::write(
-        runtime_root.join("workspace_data").join("src").join("lib.rs"),
+        runtime_root
+            .join("workspace_data")
+            .join("src")
+            .join("lib.rs"),
         b"pub fn migrate_v3() {}\n",
     )
     .expect("write updated workspace for third run");

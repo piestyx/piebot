@@ -37,13 +37,25 @@ fn mock_tool_input_path() -> String {
     std::env::var("MOCK_TOOL_INPUT_PATH").unwrap_or_else(|_| "allowed.txt".to_string())
 }
 
+#[cfg(any(test, feature = "test_providers"))]
 fn mock_tool_tool_id() -> String {
     std::env::var("MOCK_TOOL_TOOL_ID").unwrap_or_else(|_| "tools.noop".to_string())
 }
 
+#[cfg(not(any(test, feature = "test_providers")))]
+fn mock_tool_tool_id() -> String {
+    "tools.noop".to_string()
+}
+
+#[cfg(any(test, feature = "test_providers"))]
 fn mock_tool_input_json() -> Option<serde_json::Value> {
     let raw = std::env::var("MOCK_TOOL_INPUT_JSON").ok()?;
     serde_json::from_str(&raw).ok()
+}
+
+#[cfg(not(any(test, feature = "test_providers")))]
+fn mock_tool_input_json() -> Option<serde_json::Value> {
+    None
 }
 
 fn mock_tool_emit_both_inputs() -> bool {

@@ -6,14 +6,15 @@ pub use schemas::{
     WORKSPACE_APPLY_PATCH_TOOL_ID, WORKSPACE_APPROVAL_SCHEMA, WORKSPACE_PATCH_RECEIPT_SCHEMA,
 };
 pub use types::{
-    ApprovalArtifact, ApprovalHashRequest, JsonPatchOp, WorkspaceApplyPatchMode,
+    ApprovalArtifact, ApprovalHashRequest, JsonPatchOp, LinePatchOp, WorkspaceApplyPatchMode,
     WorkspaceApplyPatchRequest, WorkspaceApplyPatchResult, WorkspacePatchAction,
     WorkspacePatchReceipt,
 };
 
 use crate::policy::workspace::{
-    WorkspaceContext, WORKSPACE_REASON_CANONICALIZE_FAILED, WORKSPACE_REASON_DISABLED,
-    WORKSPACE_REASON_PATH_ESCAPE, WORKSPACE_REASON_PATH_NONEXISTENT, WORKSPACE_REASON_PATH_TRAVERSAL,
+    load_workspace_policy, WorkspaceContext, WORKSPACE_REASON_CANONICALIZE_FAILED,
+    WORKSPACE_REASON_DISABLED, WORKSPACE_REASON_PATH_ESCAPE, WORKSPACE_REASON_PATH_NONEXISTENT,
+    WORKSPACE_REASON_PATH_TRAVERSAL, WORKSPACE_REASON_ROOT_INVALID,
     WORKSPACE_REASON_SYMLINK_ESCAPE,
 };
 use crate::runtime::artifacts::{artifact_filename, is_sha256_ref};
@@ -21,7 +22,7 @@ use crate::tools::ToolError;
 use pie_common::{canonical_json_bytes, sha256_bytes};
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub const WORKSPACE_APPLY_PATCH_NOT_APPROVED: &str = "workspace_apply_patch_not_approved";
 pub const WORKSPACE_APPLY_PATCH_PRECONDITION_MISMATCH: &str =
@@ -37,6 +38,24 @@ pub struct WorkspaceApplyPatchExecution {
     pub result: WorkspaceApplyPatchResult,
 }
 
+#[derive(Debug, Clone)]
+struct ResolvedWorkspaceTarget {
+    abs_path: PathBuf,
+    existed_before: bool,
+}
+
+#[doc(hidden)]
+pub fn execute_request_with_workspace_policy(
+    runtime_root: &Path,
+    run_id: &str,
+    input_ref: &str,
+    input_value: &serde_json::Value,
+) -> Result<WorkspaceApplyPatchExecution, ToolError> {
+    let workspace_ctx =
+        load_workspace_policy(runtime_root, run_id).map_err(|e| ToolError::new(e.reason()))?;
+    execute(runtime_root, &workspace_ctx, input_ref, input_value)
+}
+
 pub fn approval_scope_request_hash_hex(
     request: &WorkspaceApplyPatchRequest,
 ) -> Result<String, ToolError> {
@@ -44,12 +63,15 @@ pub fn approval_scope_request_hash_hex(
         schema: request.schema.clone(),
         target_path: request.target_path.clone(),
         mode: request.mode.clone(),
+        allow_create: request.allow_create,
+        allow_create_parents: request.allow_create_parents,
         precondition_sha256_hex: request.precondition_sha256_hex.clone(),
         patch: request.patch.clone(),
+        line_patch: request.line_patch.clone(),
         content: request.content.clone(),
     };
-    let value =
-        serde_json::to_value(&hash_input).map_err(|_| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
+    let value = serde_json::to_value(&hash_input)
+        .map_err(|_| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
     let bytes = canonical_json_bytes(&value)
         .map_err(|_| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
     Ok(sha256_hex(bytes.as_slice()))
@@ -75,9 +97,14 @@ pub(crate) fn execute(
     let request_hash_hex = approval_scope_request_hash_hex(&request)?;
     verify_approval(runtime_root, &request, request_hash_hex.as_str())?;
 
-    let abs_path = resolve_workspace_target_path(workspace_ctx, request.target_path.as_str())?;
-    let before_bytes = if abs_path.exists() {
-        let metadata = fs::symlink_metadata(&abs_path)
+    let resolved = resolve_workspace_target_path(
+        workspace_ctx,
+        request.target_path.as_str(),
+        request.allow_create,
+        request.allow_create_parents,
+    )?;
+    let before_bytes = if resolved.existed_before {
+        let metadata = fs::symlink_metadata(&resolved.abs_path)
             .map_err(|e| ToolError::with_source(WORKSPACE_APPLY_PATCH_TARGET_INVALID, e))?;
         if metadata.file_type().is_symlink() {
             return Err(ToolError::new(WORKSPACE_REASON_SYMLINK_ESCAPE));
@@ -85,7 +112,8 @@ pub(crate) fn execute(
         if !metadata.is_file() {
             return Err(ToolError::new(WORKSPACE_APPLY_PATCH_TARGET_INVALID));
         }
-        fs::read(&abs_path).map_err(|e| ToolError::with_source(WORKSPACE_APPLY_PATCH_TARGET_INVALID, e))?
+        fs::read(&resolved.abs_path)
+            .map_err(|e| ToolError::with_source(WORKSPACE_APPLY_PATCH_TARGET_INVALID, e))?
     } else {
         Vec::new()
     };
@@ -97,7 +125,7 @@ pub(crate) fn execute(
         }
     }
 
-    let (after_bytes, applied_patch_sha256_hex, json_patch_ops_empty) = match request.mode {
+    let (after_bytes, applied_patch_sha256_hex, patch_ops_empty) = match request.mode {
         WorkspaceApplyPatchMode::JsonPatch => {
             let patch_ops = request
                 .patch
@@ -108,7 +136,11 @@ pub(crate) fn execute(
                 .map_err(|_| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
             let patch_bytes = canonical_json_bytes(&patch_value)
                 .map_err(|_| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
-            (after, sha256_hex(patch_bytes.as_slice()), patch_ops.is_empty())
+            (
+                after,
+                sha256_hex(patch_bytes.as_slice()),
+                patch_ops.is_empty(),
+            )
         }
         WorkspaceApplyPatchMode::FullReplace => {
             let content = request
@@ -122,17 +154,35 @@ pub(crate) fn execute(
                 false,
             )
         }
+        WorkspaceApplyPatchMode::LinePatch => {
+            let patch_ops = request
+                .line_patch
+                .as_ref()
+                .ok_or_else(|| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
+            let after = apply_line_patch(before_bytes.as_slice(), patch_ops)?;
+            let patch_value = serde_json::to_value(patch_ops)
+                .map_err(|_| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
+            let patch_bytes = canonical_json_bytes(&patch_value)
+                .map_err(|_| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
+            (
+                after,
+                sha256_hex(patch_bytes.as_slice()),
+                patch_ops.is_empty(),
+            )
+        }
     };
 
-    let action = if json_patch_ops_empty && after_bytes == before_bytes {
+    let action = if patch_ops_empty && after_bytes == before_bytes && resolved.existed_before {
         WorkspacePatchAction::Noop
     } else {
         WorkspacePatchAction::Applied
     };
-
+    let created = !resolved.existed_before && action == WorkspacePatchAction::Applied;
+    let should_write =
+        action == WorkspacePatchAction::Applied && (after_bytes != before_bytes || created);
     let mut bytes_written = 0u64;
-    if action == WorkspacePatchAction::Applied && after_bytes != before_bytes {
-        write_atomic(abs_path.as_path(), after_bytes.as_slice())?;
+    if should_write {
+        write_atomic(resolved.abs_path.as_path(), after_bytes.as_slice())?;
         bytes_written = after_bytes.len() as u64;
     }
 
@@ -141,6 +191,7 @@ pub(crate) fn execute(
         schema: WORKSPACE_APPLY_PATCH_RESULT_SCHEMA.to_string(),
         target_path: request.target_path.clone(),
         action,
+        created,
         before_sha256_hex,
         after_sha256_hex,
         bytes_written,
@@ -175,12 +226,20 @@ pub(crate) fn build_receipt_value(
 fn normalize_mode_fields(request: &WorkspaceApplyPatchRequest) -> Result<(), ToolError> {
     match request.mode {
         WorkspaceApplyPatchMode::JsonPatch => {
-            if request.patch.is_none() || request.content.is_some() {
+            if request.patch.is_none() || request.content.is_some() || request.line_patch.is_some()
+            {
                 return Err(ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID));
             }
         }
         WorkspaceApplyPatchMode::FullReplace => {
-            if request.content.is_none() || request.patch.is_some() {
+            if request.content.is_none() || request.patch.is_some() || request.line_patch.is_some()
+            {
+                return Err(ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID));
+            }
+        }
+        WorkspaceApplyPatchMode::LinePatch => {
+            if request.line_patch.is_none() || request.patch.is_some() || request.content.is_some()
+            {
                 return Err(ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID));
             }
         }
@@ -265,44 +324,96 @@ fn approval_bypass_enabled() -> bool {
 fn resolve_workspace_target_path(
     ctx: &WorkspaceContext,
     target_path: &str,
-) -> Result<PathBuf, ToolError> {
+    allow_create: bool,
+    allow_create_parents: bool,
+) -> Result<ResolvedWorkspaceTarget, ToolError> {
     if !ctx.policy.enabled {
         return Err(ToolError::new(WORKSPACE_REASON_DISABLED));
     }
     let root = ensure_workspace_root(ctx)?;
     let rel_path = target_rel_path(target_path)?;
-    let mut abs_path = root.clone();
-    abs_path.push(&rel_path);
-    let parent = abs_path
-        .parent()
-        .ok_or_else(|| ToolError::new(WORKSPACE_REASON_PATH_NONEXISTENT))?
-        .to_path_buf();
-    if !parent.exists() {
-        return Err(ToolError::new(WORKSPACE_REASON_PATH_NONEXISTENT));
-    }
-    ensure_no_symlink_components(&root, &rel_path)?;
-    let canonical_parent = fs::canonicalize(&parent)
-        .map_err(|e| ToolError::with_source(WORKSPACE_REASON_CANONICALIZE_FAILED, e))?;
-    if !canonical_parent.starts_with(&root) {
-        return Err(ToolError::new(WORKSPACE_REASON_SYMLINK_ESCAPE));
-    }
     let file_name = rel_path
         .file_name()
         .ok_or_else(|| ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID))?;
-    abs_path = canonical_parent.join(file_name);
+    let parent_rel = rel_path.parent().unwrap_or_else(|| Path::new(""));
+    let canonical_parent =
+        resolve_or_create_parent(root.as_path(), parent_rel, allow_create_parents)?;
+    let abs_path = canonical_parent.join(file_name);
     if abs_path.exists() {
         let metadata = fs::symlink_metadata(&abs_path)
             .map_err(|e| ToolError::with_source(WORKSPACE_REASON_CANONICALIZE_FAILED, e))?;
         if metadata.file_type().is_symlink() {
             return Err(ToolError::new(WORKSPACE_REASON_SYMLINK_ESCAPE));
         }
+        if !metadata.is_file() {
+            return Err(ToolError::new(WORKSPACE_APPLY_PATCH_TARGET_INVALID));
+        }
         let canonical_abs = fs::canonicalize(&abs_path)
             .map_err(|e| ToolError::with_source(WORKSPACE_REASON_CANONICALIZE_FAILED, e))?;
         if !canonical_abs.starts_with(&root) {
             return Err(ToolError::new(WORKSPACE_REASON_SYMLINK_ESCAPE));
         }
+        Ok(ResolvedWorkspaceTarget {
+            abs_path,
+            existed_before: true,
+        })
+    } else {
+        if !allow_create {
+            return Err(ToolError::new(WORKSPACE_REASON_PATH_NONEXISTENT));
+        }
+        Ok(ResolvedWorkspaceTarget {
+            abs_path,
+            existed_before: false,
+        })
     }
-    Ok(abs_path)
+}
+
+fn resolve_or_create_parent(
+    root: &Path,
+    parent_rel: &Path,
+    allow_create_parents: bool,
+) -> Result<PathBuf, ToolError> {
+    if parent_rel.as_os_str().is_empty() {
+        return Ok(root.to_path_buf());
+    }
+    let mut current = root.to_path_buf();
+    for component in parent_rel.components() {
+        match component {
+            Component::Normal(name) => current.push(name),
+            Component::CurDir => return Err(ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID)),
+            Component::ParentDir => return Err(ToolError::new(WORKSPACE_REASON_PATH_TRAVERSAL)),
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(ToolError::new(WORKSPACE_REASON_PATH_ESCAPE))
+            }
+        }
+        if current.exists() {
+            let metadata = fs::symlink_metadata(&current)
+                .map_err(|e| ToolError::with_source(WORKSPACE_REASON_CANONICALIZE_FAILED, e))?;
+            if metadata.file_type().is_symlink() {
+                return Err(ToolError::new(WORKSPACE_REASON_SYMLINK_ESCAPE));
+            }
+            if !metadata.is_dir() {
+                return Err(ToolError::new(WORKSPACE_APPLY_PATCH_TARGET_INVALID));
+            }
+        } else {
+            if !allow_create_parents {
+                return Err(ToolError::new(WORKSPACE_REASON_PATH_NONEXISTENT));
+            }
+            fs::create_dir(&current)
+                .map_err(|e| ToolError::with_source(WORKSPACE_APPLY_PATCH_TARGET_INVALID, e))?;
+            let metadata = fs::symlink_metadata(&current)
+                .map_err(|e| ToolError::with_source(WORKSPACE_REASON_CANONICALIZE_FAILED, e))?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err(ToolError::new(WORKSPACE_REASON_SYMLINK_ESCAPE));
+            }
+        }
+    }
+    let canonical_parent = fs::canonicalize(&current)
+        .map_err(|e| ToolError::with_source(WORKSPACE_REASON_CANONICALIZE_FAILED, e))?;
+    if !canonical_parent.starts_with(root) {
+        return Err(ToolError::new(WORKSPACE_REASON_SYMLINK_ESCAPE));
+    }
+    Ok(canonical_parent)
 }
 
 fn ensure_workspace_root(ctx: &WorkspaceContext) -> Result<PathBuf, ToolError> {
@@ -319,8 +430,6 @@ fn ensure_workspace_root(ctx: &WorkspaceContext) -> Result<PathBuf, ToolError> {
         .map_err(|e| ToolError::with_source(WORKSPACE_REASON_CANONICALIZE_FAILED, e))
 }
 
-const WORKSPACE_REASON_ROOT_INVALID: &str = "workspace_root_invalid";
-
 fn target_rel_path(path: &str) -> Result<PathBuf, ToolError> {
     let mut out = PathBuf::new();
     for segment in path.split('/') {
@@ -330,22 +439,6 @@ fn target_rel_path(path: &str) -> Result<PathBuf, ToolError> {
         return Err(ToolError::new(WORKSPACE_REASON_PATH_ESCAPE));
     }
     Ok(out)
-}
-
-fn ensure_no_symlink_components(root: &Path, rel_path: &Path) -> Result<(), ToolError> {
-    let mut current = root.to_path_buf();
-    for component in rel_path.components() {
-        current.push(component.as_os_str());
-        if !current.exists() {
-            continue;
-        }
-        let meta = fs::symlink_metadata(&current)
-            .map_err(|e| ToolError::with_source(WORKSPACE_REASON_CANONICALIZE_FAILED, e))?;
-        if meta.file_type().is_symlink() {
-            return Err(ToolError::new(WORKSPACE_REASON_SYMLINK_ESCAPE));
-        }
-    }
-    Ok(())
 }
 
 fn apply_json_patch(before_bytes: &[u8], patch_ops: &[JsonPatchOp]) -> Result<Vec<u8>, ToolError> {
@@ -369,6 +462,90 @@ fn apply_json_patch(before_bytes: &[u8], patch_ops: &[JsonPatchOp]) -> Result<Ve
         }
     }
     Ok(content.into_bytes())
+}
+
+fn apply_line_patch(before_bytes: &[u8], patch_ops: &[LinePatchOp]) -> Result<Vec<u8>, ToolError> {
+    let before_text = String::from_utf8(before_bytes.to_vec())
+        .map_err(|_| ToolError::new(WORKSPACE_APPLY_PATCH_CONTENT_INVALID))?;
+    let normalized = normalize_line_endings(before_text.as_str());
+    let mut lines = split_lines(normalized.as_str());
+    for op in patch_ops {
+        match op {
+            LinePatchOp::InsertLines {
+                at_line,
+                lines: insert,
+            } => {
+                let at = as_line_index(*at_line, lines.len())?;
+                let insert_lines = validate_patch_lines(insert)?;
+                lines.splice(at..at, insert_lines.into_iter());
+            }
+            LinePatchOp::DeleteLines {
+                start_line,
+                end_line_exclusive,
+            } => {
+                let start = as_line_index(*start_line, lines.len())?;
+                let end = as_line_index(*end_line_exclusive, lines.len())?;
+                if start > end {
+                    return Err(ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID));
+                }
+                lines.drain(start..end);
+            }
+            LinePatchOp::ReplaceLines {
+                start_line,
+                end_line_exclusive,
+                lines: replace,
+            } => {
+                let start = as_line_index(*start_line, lines.len())?;
+                let end = as_line_index(*end_line_exclusive, lines.len())?;
+                if start > end {
+                    return Err(ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID));
+                }
+                let replace_lines = validate_patch_lines(replace)?;
+                lines.splice(start..end, replace_lines.into_iter());
+            }
+        }
+    }
+    if lines.is_empty() {
+        Ok(Vec::new())
+    } else {
+        let mut joined = lines.join("\n");
+        joined.push('\n');
+        Ok(joined.into_bytes())
+    }
+}
+
+fn validate_patch_lines(lines: &[String]) -> Result<Vec<String>, ToolError> {
+    let mut out = Vec::with_capacity(lines.len());
+    for line in lines {
+        if line.contains('\n') || line.contains('\r') {
+            return Err(ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID));
+        }
+        out.push(line.clone());
+    }
+    Ok(out)
+}
+
+fn split_lines(text: &str) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let mut lines: Vec<String> = text.split('\n').map(|line| line.to_string()).collect();
+    if matches!(lines.last(), Some(last) if last.is_empty()) {
+        lines.pop();
+    }
+    lines
+}
+
+fn normalize_line_endings(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn as_line_index(value: u64, max: usize) -> Result<usize, ToolError> {
+    let index = as_index(value)?;
+    if index > max {
+        return Err(ToolError::new(WORKSPACE_APPLY_PATCH_INPUT_INVALID));
+    }
+    Ok(index)
 }
 
 fn replace_range(
@@ -411,7 +588,10 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), ToolError> {
         .map_err(|e| ToolError::with_source(WORKSPACE_APPLY_PATCH_TARGET_INVALID, e))?;
     if let Err(e) = fs::rename(&tmp_path, path) {
         let _ = fs::remove_file(&tmp_path);
-        return Err(ToolError::with_source(WORKSPACE_APPLY_PATCH_TARGET_INVALID, e));
+        return Err(ToolError::with_source(
+            WORKSPACE_APPLY_PATCH_TARGET_INVALID,
+            e,
+        ));
     }
     Ok(())
 }

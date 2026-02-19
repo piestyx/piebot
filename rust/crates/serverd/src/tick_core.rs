@@ -11,7 +11,13 @@ use pie_kernel_state::{save, state_hash, StateDelta};
 use std::path::Path;
 
 pub(crate) fn observe(runtime_root: &Path, tick_index: u64) -> Result<Observation, std::io::Error> {
-    // Deterministic observation: list files under runtime root, sorted
+    // Deterministic observation: list input-bearing files under runtime root, sorted.
+    // Request-hash stability depends on excluding generated artifacts written during/after route
+    // execution, otherwise request hashes become self-referential and drift across equivalent runs.
+    // Excluded generated directories are:
+    // - logs
+    // - provider_responses
+    // - tool_outputs
     let mut observed = Vec::new();
 
     fn collect_files(

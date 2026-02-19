@@ -236,10 +236,12 @@ fn execute_builtin_tool(
             {
                 return Err(ToolError::new("tool_spec_invalid"));
             }
-            let workspace_ctx = workspace_ctx.ok_or_else(|| ToolError::new("workspace_root_invalid"))?;
+            let workspace_ctx =
+                workspace_ctx.ok_or_else(|| ToolError::new("workspace_root_invalid"))?;
             emit_workspace_patch_requested(audit, input_ref)?;
             let execution =
-                match workspace_apply_patch::execute(runtime_root, workspace_ctx, input_ref, input) {
+                match workspace_apply_patch::execute(runtime_root, workspace_ctx, input_ref, input)
+                {
                     Ok(value) => value,
                     Err(err) => {
                         emit_workspace_patch_rejected(audit, input_ref, err.reason())?;
@@ -308,7 +310,10 @@ fn emit_tool_selected(
     )
 }
 
-fn emit_workspace_patch_requested(audit: &mut AuditAppender, request_ref: &str) -> Result<(), ToolError> {
+fn emit_workspace_patch_requested(
+    audit: &mut AuditAppender,
+    request_ref: &str,
+) -> Result<(), ToolError> {
     emit_audit_event(
         audit,
         AuditEvent::WorkspacePatchRequested {
@@ -358,7 +363,8 @@ pub(crate) fn read_tool_output(
     output_ref: &str,
 ) -> Result<ToolOutput, ToolError> {
     let path = tool_artifact_path(runtime_root, "tool_outputs", output_ref);
-    let bytes = fs::read(&path).map_err(|e| ToolError::with_source("tool_output_read_failed", e))?;
+    let bytes =
+        fs::read(&path).map_err(|e| ToolError::with_source("tool_output_read_failed", e))?;
     let output: ToolOutput =
         serde_json::from_slice(&bytes).map_err(|_| ToolError::new("tool_output_invalid"))?;
     if output.schema != TOOL_OUTPUT_SCHEMA {

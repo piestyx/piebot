@@ -7,7 +7,7 @@
 
 use pie_audit_log::AuditAppender;
 use serverd::output_contract::OUTPUT_CONTRACT_SCHEMA;
-use serverd::retrieval::{save_gsama_store, RETRIEVAL_CONFIG_SCHEMA, load_retrieval_config};
+use serverd::retrieval::{load_retrieval_config, save_gsama_store, RETRIEVAL_CONFIG_SCHEMA};
 use serverd::skills::SKILL_MANIFEST_SCHEMA;
 use serverd::tools::execute::{execute_tool, TOOL_INPUT_NOOP_SCHEMA, TOOL_OUTPUT_NOOP_SCHEMA};
 use serverd::tools::policy::{
@@ -220,7 +220,8 @@ fn write_retrieval_config(runtime_root: &Path) {
 }
 
 fn initialize_empty_gsama_store(runtime_root: &Path) {
-    let config = load_retrieval_config(runtime_root).expect("load retrieval config for test runtime");
+    let config =
+        load_retrieval_config(runtime_root).expect("load retrieval config for test runtime");
     let vector_dim = config.gsama_vector_dim;
     let capacity = config.gsama_store_capacity;
     let store = gsama_core::Store::new(vector_dim, capacity);
@@ -318,7 +319,8 @@ fn assert_replay_runtime_isolation(runtime_root: &Path) {
 
 // Stage 2: Future-safe ref extraction from result rows
 fn result_row_ref(row: &serde_json::Value) -> Option<&str> {
-    row.get("ref").and_then(|v| v.as_str())
+    row.get("ref")
+        .and_then(|v| v.as_str())
         .or_else(|| row.get("context_ref").and_then(|v| v.as_str()))
         .or_else(|| row.get("artifact_ref").and_then(|v| v.as_str()))
 }
@@ -369,7 +371,11 @@ fn split_ref_with_default(value: &str, default_namespace: &str) -> (String, Stri
     }
 }
 
-fn read_artifact_json(runtime_root: &Path, namespace: &str, artifact_ref: &str) -> serde_json::Value {
+fn read_artifact_json(
+    runtime_root: &Path,
+    namespace: &str,
+    artifact_ref: &str,
+) -> serde_json::Value {
     let bytes = fs::read(artifact_path(runtime_root, namespace, artifact_ref))
         .expect("read artifact bytes");
     serde_json::from_slice(&bytes).expect("artifact json")
@@ -481,9 +487,11 @@ fn assert_before(types: &[String], first: &str, second: &str) {
 #[test]
 fn workflow_gsama_continuity_survives_context_reset() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let runtime_record = std::env::temp_dir().join(format!("pie_b5_context_seed_{}", Uuid::new_v4()));
+    let runtime_record =
+        std::env::temp_dir().join(format!("pie_b5_context_seed_{}", Uuid::new_v4()));
     let runtime_prep = std::env::temp_dir().join(format!("pie_b5_context_prep_{}", Uuid::new_v4()));
-    let runtime_replay = std::env::temp_dir().join(format!("pie_b5_context_reset_{}", Uuid::new_v4()));
+    let runtime_replay =
+        std::env::temp_dir().join(format!("pie_b5_context_reset_{}", Uuid::new_v4()));
     setup_demo_runtime(&runtime_record, false, true);
     setup_demo_runtime(&runtime_prep, false, true);
     setup_demo_runtime(&runtime_replay, false, true);
@@ -569,7 +577,10 @@ fn workflow_gsama_continuity_survives_context_reset() {
         )
         .expect("write placeholder working memory");
     }
-    assert!(replay_working.is_file(), "working memory snapshot should exist");
+    assert!(
+        replay_working.is_file(),
+        "working memory snapshot should exist"
+    );
     fs::remove_file(&replay_working).expect("remove working memory snapshot");
     assert!(
         !replay_working.exists(),
@@ -578,7 +589,10 @@ fn workflow_gsama_continuity_survives_context_reset() {
 
     // Ensure replay runtime isolation before running.
     assert_replay_runtime_isolation(&runtime_replay);
-    let snapshot_path = runtime_replay.join("memory").join("gsama").join("store_snapshot.json");
+    let snapshot_path = runtime_replay
+        .join("memory")
+        .join("gsama")
+        .join("store_snapshot.json");
     let snapshot_before = fs::read(&snapshot_path).expect("read gsama snapshot before replay");
     let hash_before = hash_bytes(&snapshot_before);
 
@@ -604,7 +618,10 @@ fn workflow_gsama_continuity_survives_context_reset() {
 
     let snapshot_after = fs::read(&snapshot_path).expect("read gsama snapshot after replay");
     let hash_after = hash_bytes(&snapshot_after);
-    assert_eq!(hash_before, hash_after, "GSAMA snapshot must not change during replay");
+    assert_eq!(
+        hash_before, hash_after,
+        "GSAMA snapshot must not change during replay"
+    );
 
     let replay_events = read_event_payloads(&runtime_replay);
     let replay_types = read_event_types(&runtime_replay);
@@ -713,7 +730,11 @@ fn run_replay_and_collect(
         .iter()
         .any(|event_type| event_type == "provider_response_artifact_written"));
     assert_before(&replay_types, "retrieval_query_written", "context_selected");
-    assert_before(&replay_types, "retrieval_results_written", "context_selected");
+    assert_before(
+        &replay_types,
+        "retrieval_results_written",
+        "context_selected",
+    );
     let query_ref = find_event(&replay_events, "retrieval_query_written")
         .get("query_ref")
         .and_then(|v| v.as_str())
@@ -874,7 +895,11 @@ fn workflow_record_then_replay_is_deterministic_and_replayable() {
     let record_events = read_event_payloads(&runtime_record);
     let record_types = read_event_types(&runtime_record);
     assert_before(&record_types, "retrieval_query_written", "context_selected");
-    assert_before(&record_types, "retrieval_results_written", "context_selected");
+    assert_before(
+        &record_types,
+        "retrieval_results_written",
+        "context_selected",
+    );
     assert!(record_types
         .iter()
         .any(|e| e == "retrieval_results_written"));

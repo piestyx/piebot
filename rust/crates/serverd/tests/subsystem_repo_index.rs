@@ -67,8 +67,11 @@ fn write_workspace_contents(runtime_root: &Path) {
     fs::create_dir_all(workspace.join("target")).expect("create target dir");
     fs::create_dir_all(workspace.join(".git")).expect("create git dir");
     fs::write(workspace.join("small.txt"), b"alpha\n").expect("write small file");
-    fs::write(workspace.join("nested").join("multi_chunk.txt"), b"0123456789abcdef")
-        .expect("write chunked file");
+    fs::write(
+        workspace.join("nested").join("multi_chunk.txt"),
+        b"0123456789abcdef",
+    )
+    .expect("write chunked file");
     fs::write(
         workspace.join("nested").join("deeper").join("notes.md"),
         b"# deterministic\ncontent\n",
@@ -79,10 +82,16 @@ fn write_workspace_contents(runtime_root: &Path) {
         b"ignored by repo_index config",
     )
     .expect("write ignored file");
-    fs::write(workspace.join("target").join("skip.txt"), b"ignored baseline target")
-        .expect("write target ignored file");
-    fs::write(workspace.join(".git").join("skip.txt"), b"ignored baseline git")
-        .expect("write git ignored file");
+    fs::write(
+        workspace.join("target").join("skip.txt"),
+        b"ignored baseline target",
+    )
+    .expect("write target ignored file");
+    fs::write(
+        workspace.join(".git").join("skip.txt"),
+        b"ignored baseline git",
+    )
+    .expect("write git ignored file");
 }
 
 fn read_event_payloads(runtime_root: &Path) -> Vec<serde_json::Value> {
@@ -106,7 +115,10 @@ fn artifact_path(runtime_root: &Path, subdir: &str, artifact_ref: &str) -> PathB
         .join(format!("{}.json", trimmed))
 }
 fn assert_sha256_ref(value: &str) {
-    assert!(value.starts_with("sha256:"), "hash must have sha256: prefix");
+    assert!(
+        value.starts_with("sha256:"),
+        "hash must have sha256: prefix"
+    );
     let hex = value
         .strip_prefix("sha256:")
         .expect("hash prefix already checked");
@@ -224,10 +236,18 @@ fn repo_identity_and_snapshot_are_deterministic_across_runtime_roots() {
         .get("artifact_ref")
         .and_then(|v| v.as_str())
         .expect("identity ref two");
-    let identity_bytes_one =
-        fs::read(artifact_path(&runtime_one, "repo_identity", identity_ref_one)).expect("read one");
-    let identity_bytes_two =
-        fs::read(artifact_path(&runtime_two, "repo_identity", identity_ref_two)).expect("read two");
+    let identity_bytes_one = fs::read(artifact_path(
+        &runtime_one,
+        "repo_identity",
+        identity_ref_one,
+    ))
+    .expect("read one");
+    let identity_bytes_two = fs::read(artifact_path(
+        &runtime_two,
+        "repo_identity",
+        identity_ref_two,
+    ))
+    .expect("read two");
     assert_eq!(identity_bytes_one, identity_bytes_two);
 
     let snapshot_ref_one = snapshot_one
@@ -266,7 +286,11 @@ fn repo_identity_and_snapshot_are_deterministic_across_runtime_roots() {
         .get("files")
         .and_then(|v| v.as_array())
         .expect("identity files");
-    assert_eq!(files.len(), 3, "ignored dirs/prefix files should be excluded");
+    assert_eq!(
+        files.len(),
+        3,
+        "ignored dirs/prefix files should be excluded"
+    );
     let mut path_order = Vec::new();
     for file in files {
         let path = file
@@ -386,7 +410,8 @@ fn repo_identity_and_snapshot_are_deterministic_across_runtime_roots() {
 
 #[test]
 fn repo_index_artifacts_are_audited_and_not_hidden_state() {
-    let runtime_root = std::env::temp_dir().join(format!("pie_repo_index_audit_{}", Uuid::new_v4()));
+    let runtime_root =
+        std::env::temp_dir().join(format!("pie_repo_index_audit_{}", Uuid::new_v4()));
     setup_runtime(&runtime_root);
 
     let out = run_serverd_route(&runtime_root);

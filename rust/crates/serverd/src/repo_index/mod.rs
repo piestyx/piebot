@@ -11,11 +11,11 @@ use crate::runtime::artifacts::write_json_artifact_atomic;
 use pie_audit_log::AuditAppender;
 use std::path::Path;
 
+pub(crate) use self::canonical::{domain_separated_hash_ref, sha256_ref_to_hex};
 use self::config::load_repo_index_config;
 use self::error::RepoIndexError;
 use self::identity::build_repo_identity;
 use self::snapshot::build_repo_index_snapshot;
-pub(crate) use self::canonical::{domain_separated_hash_ref, sha256_ref_to_hex};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -48,7 +48,9 @@ pub(crate) fn maybe_build_repo_index(
     let identity_value = serde_json::to_value(&identity.artifact)
         .map_err(|_| RepoIndexError::new("repo_index_hash_failed"))?;
     let identity_ref = write_json_artifact_atomic(runtime_root, "repo_identity", &identity_value)
-        .map_err(|e| RepoIndexError::with_detail("repo_index_identity_write_failed", e.to_string()))?;
+        .map_err(|e| {
+        RepoIndexError::with_detail("repo_index_identity_write_failed", e.to_string())
+    })?;
     append_event(
         audit,
         AuditEvent::RepoIdentityWritten {
@@ -64,10 +66,9 @@ pub(crate) fn maybe_build_repo_index(
     let snapshot_value = serde_json::to_value(&snapshot.artifact)
         .map_err(|_| RepoIndexError::new("repo_index_hash_failed"))?;
     let snapshot_ref =
-        write_json_artifact_atomic(runtime_root, "repo_index_snapshot", &snapshot_value)
-            .map_err(|e| {
-                RepoIndexError::with_detail("repo_index_snapshot_write_failed", e.to_string())
-            })?;
+        write_json_artifact_atomic(runtime_root, "repo_index_snapshot", &snapshot_value).map_err(
+            |e| RepoIndexError::with_detail("repo_index_snapshot_write_failed", e.to_string()),
+        )?;
     append_event(
         audit,
         AuditEvent::RepoIndexSnapshotWritten {

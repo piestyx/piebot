@@ -68,8 +68,8 @@ pub(crate) fn build_repo_identity(
         let path = canonical_rel_path(workspace_root, file_path.as_path())?;
         let bytes = fs::read(file_path.as_path())
             .map_err(|e| RepoIndexError::with_detail("repo_index_walk_failed", e.to_string()))?;
-        let file_len =
-            u64::try_from(bytes.len()).map_err(|_| RepoIndexError::new("repo_index_total_too_large"))?;
+        let file_len = u64::try_from(bytes.len())
+            .map_err(|_| RepoIndexError::new("repo_index_total_too_large"))?;
         if file_len > cfg.max_file_bytes {
             return Err(RepoIndexError::new("repo_index_file_too_large"));
         }

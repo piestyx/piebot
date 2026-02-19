@@ -16,8 +16,8 @@ pub(crate) fn sha256_digest_hex(bytes: &[u8]) -> Result<String, RepoIndexError> 
 }
 
 pub(crate) fn sha256_ref(hex: &str) -> Result<String, RepoIndexError> {
-    let normalized = normalize_digest_hex(hex)
-        .ok_or_else(|| RepoIndexError::new("repo_index_hash_failed"))?;
+    let normalized =
+        normalize_digest_hex(hex).ok_or_else(|| RepoIndexError::new("repo_index_hash_failed"))?;
     Ok(format!("sha256:{}", normalized))
 }
 
@@ -116,8 +116,8 @@ fn walk_dir(
         .map_err(|e| RepoIndexError::with_detail("repo_index_walk_failed", e.to_string()))?;
     let mut entries: Vec<WalkEntry> = Vec::new();
     for entry in read_dir {
-        let entry =
-            entry.map_err(|e| RepoIndexError::with_detail("repo_index_walk_failed", e.to_string()))?;
+        let entry = entry
+            .map_err(|e| RepoIndexError::with_detail("repo_index_walk_failed", e.to_string()))?;
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path)
             .map_err(|e| RepoIndexError::with_detail("repo_index_walk_failed", e.to_string()))?;

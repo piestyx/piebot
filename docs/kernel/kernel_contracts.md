@@ -38,6 +38,19 @@ Part B may evolve:
   - `rust/crates/serverd/tests/invariants_cross_runtime_replay_parity.rs`
 - Status: Proven
 
+### 2.1.a Request-hash observation sources MUST exclude generated artifact directories
+- Modules: `rust/crates/serverd/src/tick_core.rs` (`observe`, `task_request_hash`)
+- Contract:
+  - Observation for request-hash derivation MUST include deterministic input-bearing files under the runtime root.
+  - Observation MUST exclude generated directories that are produced by route execution itself to avoid circular request-hash drift.
+  - Excluded directories are currently: `logs`, `provider_responses`, `tool_outputs`.
+- Rationale:
+  - Including generated directories would let prior tool/provider outputs perturb subsequent request hashes for otherwise equivalent runs.
+  - Exclusions preserve replay parity and deterministic request hash derivation from true inputs.
+- Tests:
+  - `rust/crates/serverd/tests/invariants_request_hash_observation.rs`
+- Status: Proven
+
 ### 2.2 Fail-closed behavior MUST hold
 - Modules: `rust/crates/serverd/src/audit.rs` (`fail_run`), plus subsystem validators/gates
 - Audit events: subsystem-specific failure events before terminal `run_completed` (for example: `provider_output_rejected`, `tool_execution_denied`, `workspace_violation`, `retrieval_failed`, `lens_failed`, `mode_failed`)

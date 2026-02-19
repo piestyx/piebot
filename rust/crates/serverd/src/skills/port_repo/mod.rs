@@ -212,8 +212,9 @@ pub(crate) fn generate_port_plan_from_provider_output(
     let request_artifact = build_port_plan_request(&inputs);
     let request_value = serde_json::to_value(&request_artifact)
         .map_err(|_| PortPlanError::new("port_plan_build_failed"))?;
-    let request_ref = write_json_artifact_atomic(runtime_root, "port_plan_requests", &request_value)
-        .map_err(|_| PortPlanError::new("port_plan_write_failed"))?;
+    let request_ref =
+        write_json_artifact_atomic(runtime_root, "port_plan_requests", &request_value)
+            .map_err(|_| PortPlanError::new("port_plan_write_failed"))?;
 
     let provider_payload = parse_provider_payload(provider_output)?;
     let (nodes, invariants, work_units, plan_root_hash) = canonicalize_port_plan(
@@ -238,7 +239,10 @@ pub(crate) fn generate_port_plan_from_provider_output(
     let plan_ref = write_json_artifact_atomic(runtime_root, "port_plans", &plan_value)
         .map_err(|_| PortPlanError::new("port_plan_write_failed"))?;
 
-    let mut node_kinds: Vec<String> = nodes.iter().map(|node| node.kind.as_str().to_string()).collect();
+    let mut node_kinds: Vec<String> = nodes
+        .iter()
+        .map(|node| node.kind.as_str().to_string())
+        .collect();
     node_kinds.sort();
     node_kinds.dedup();
     let summary = PortPlanSummaryArtifact {
@@ -253,8 +257,9 @@ pub(crate) fn generate_port_plan_from_provider_output(
     };
     let summary_value =
         serde_json::to_value(&summary).map_err(|_| PortPlanError::new("port_plan_build_failed"))?;
-    let summary_ref = write_json_artifact_atomic(runtime_root, "port_plan_summaries", &summary_value)
-        .map_err(|_| PortPlanError::new("port_plan_write_failed"))?;
+    let summary_ref =
+        write_json_artifact_atomic(runtime_root, "port_plan_summaries", &summary_value)
+            .map_err(|_| PortPlanError::new("port_plan_write_failed"))?;
 
     append_event(
         audit,
@@ -340,11 +345,13 @@ fn build_port_plan_request(inputs: &LoadedRepoInputs) -> PortPlanRequestArtifact
     }
     let chunks = chunks_by_path
         .into_iter()
-        .map(|(path, (chunk_count, total_bytes))| PortPlanRequestChunkSummary {
-            path,
-            chunk_count,
-            total_bytes,
-        })
+        .map(
+            |(path, (chunk_count, total_bytes))| PortPlanRequestChunkSummary {
+                path,
+                chunk_count,
+                total_bytes,
+            },
+        )
         .collect();
 
     PortPlanRequestArtifact {
@@ -414,11 +421,13 @@ fn canonicalize_port_plan(
                 statement: invariant.statement.clone(),
             },
         )?;
-        invariant_by_id.entry(invariant_id.clone()).or_insert(PortInvariant {
-            id: invariant_id,
-            statement: invariant.statement,
-            scope: invariant.scope,
-        });
+        invariant_by_id
+            .entry(invariant_id.clone())
+            .or_insert(PortInvariant {
+                id: invariant_id,
+                statement: invariant.statement,
+                scope: invariant.scope,
+            });
     }
     for node in node_by_id.values() {
         let scope = primary_target(node)?;
@@ -717,8 +726,10 @@ fn primary_target_from_node(node: &PortPlanNode) -> String {
 }
 
 fn hash_ref_from_payload<T: Serialize>(domain: &str, payload: &T) -> Result<String, PortPlanError> {
-    let value = serde_json::to_value(payload).map_err(|_| PortPlanError::new("port_plan_hash_failed"))?;
-    let bytes = canonical_json_bytes(&value).map_err(|_| PortPlanError::new("port_plan_hash_failed"))?;
+    let value =
+        serde_json::to_value(payload).map_err(|_| PortPlanError::new("port_plan_hash_failed"))?;
+    let bytes =
+        canonical_json_bytes(&value).map_err(|_| PortPlanError::new("port_plan_hash_failed"))?;
     canonical_domain_separated_hash_ref(domain, &bytes)
         .map_err(|_| PortPlanError::new("port_plan_hash_failed"))
 }
@@ -851,7 +862,11 @@ fn append_port_plan_entries_to_gsama(
     Ok(())
 }
 
-fn with_entry_tags(base: &[(String, String)], entry_type: &str, entry_id: &str) -> Vec<(String, String)> {
+fn with_entry_tags(
+    base: &[(String, String)],
+    entry_type: &str,
+    entry_id: &str,
+) -> Vec<(String, String)> {
     let mut tags = base.to_vec();
     tags.push(("entry_type".to_string(), entry_type.to_string()));
     tags.push(("entry_id".to_string(), entry_id.to_string()));
@@ -875,8 +890,11 @@ fn load_repo_inputs(
     if repo_identity.schema != REPO_IDENTITY_SCHEMA {
         return Err(PortPlanError::new("port_plan_repo_index_missing"));
     }
-    let repo_index_snapshot: RepoIndexSnapshotArtifactLite =
-        read_artifact_json(runtime_root, "repo_index_snapshot", &repo_index_snapshot_ref)?;
+    let repo_index_snapshot: RepoIndexSnapshotArtifactLite = read_artifact_json(
+        runtime_root,
+        "repo_index_snapshot",
+        &repo_index_snapshot_ref,
+    )?;
     if repo_index_snapshot.schema != REPO_INDEX_SNAPSHOT_SCHEMA {
         return Err(PortPlanError::new("port_plan_repo_index_missing"));
     }
@@ -914,8 +932,8 @@ fn load_latest_repo_index_refs_from_audit(
     runtime_root: &Path,
 ) -> Result<(String, String), PortPlanError> {
     let audit_path = runtime_root.join("logs").join("audit_rust.jsonl");
-    let events =
-        read_audit_events(&audit_path).map_err(|_| PortPlanError::new("port_plan_repo_index_missing"))?;
+    let events = read_audit_events(&audit_path)
+        .map_err(|_| PortPlanError::new("port_plan_repo_index_missing"))?;
     let mut latest_identity_ref: Option<String> = None;
     let mut latest_pair: Option<(String, String)> = None;
     for event in events {
