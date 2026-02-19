@@ -48,7 +48,7 @@ pub(crate) fn normalize_and_hash_reason(reason: &str) -> Result<String, Mutation
     if normalized.is_empty() {
         return Err(MutationError::new("operator_reason_empty"));
     }
-    if normalized.as_bytes().len() > MAX_OPERATOR_REASON_BYTES {
+    if normalized.len() > MAX_OPERATOR_REASON_BYTES {
         return Err(MutationError::new("operator_reason_too_large"));
     }
     let value = serde_json::json!({

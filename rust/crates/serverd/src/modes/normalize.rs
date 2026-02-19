@@ -24,16 +24,15 @@ fn normalize_mode_config(config: &mut ModeConfig) -> Result<(), ModeError> {
     }
     config.allowed_modes.sort();
     config.allowed_modes.dedup();
-    if config.enabled {
-        if config.allowed_modes.is_empty()
+    if config.enabled
+        && (config.allowed_modes.is_empty()
             || config.max_profile_bytes == 0
             || !config
                 .allowed_modes
                 .iter()
-                .any(|value| value == &config.default_mode)
-        {
-            return Err(ModeError::new("mode_config_invalid"));
-        }
+                .any(|value| value == &config.default_mode))
+    {
+        return Err(ModeError::new("mode_config_invalid"));
     }
     Ok(())
 }

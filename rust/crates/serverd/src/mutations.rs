@@ -166,7 +166,7 @@ pub(crate) fn run_learn(args: LearnArgs) -> Result<(), Box<dyn std::error::Error
     if text.trim().is_empty() {
         return emit_error("learning_text_empty");
     }
-    if text.as_bytes().len() > MAX_LEARNING_BYTES {
+    if text.len() > MAX_LEARNING_BYTES {
         return emit_error("learning_text_too_large");
     }
     let tags = match parse_tags(args.tags.as_deref()) {
@@ -357,7 +357,7 @@ pub(crate) fn find_approval_request(
         .map(|entry| entry.path())
         .filter(|path| path.is_file())
         .collect();
-    entries.sort_by(|a, b| path_name(a).cmp(&path_name(b)));
+    entries.sort_by_key(|a| path_name(a));
     let mut matches = Vec::new();
     for path in entries {
         if path.extension().and_then(|e| e.to_str()) != Some("json") {

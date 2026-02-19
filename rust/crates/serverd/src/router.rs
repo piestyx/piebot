@@ -186,7 +186,7 @@ fn matches_rule(rule: &RouteRule, input: &RouteInput<'_>) -> bool {
         }
     }
     if let Some(modulus) = rule.when.tick_mod {
-        if modulus == 0 || input.tick_index % modulus != 0 {
+        if modulus == 0 || !input.tick_index.is_multiple_of(modulus) {
             return false;
         }
     }

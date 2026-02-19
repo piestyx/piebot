@@ -455,23 +455,21 @@ fn lens_config_path(runtime_root: &Path) -> PathBuf {
 
 fn normalize_lens_config(config: &mut LensConfig) -> Result<(), LensError> {
     let parsed_ids = canonicalize_lens_ids(&config.allowed_lenses, "lens_config_invalid")?;
-    if let Some(recency_ticks) = config.recency_ticks {
-        if recency_ticks == 0 {
-            return Err(LensError::new("lens_config_invalid"));
-        }
+    if config.recency_ticks.is_some_and(|recency_ticks| recency_ticks == 0) {
+        return Err(LensError::new("lens_config_invalid"));
     }
-    if let Some(top_per_group) = config.top_per_group {
-        if top_per_group == 0 {
-            return Err(LensError::new("lens_config_invalid"));
-        }
+    if config
+        .top_per_group
+        .is_some_and(|top_per_group| top_per_group == 0)
+    {
+        return Err(LensError::new("lens_config_invalid"));
     }
-    if config.enabled {
-        if config.allowed_lenses.is_empty()
+    if config.enabled
+        && (config.allowed_lenses.is_empty()
             || config.max_output_bytes == 0
-            || config.max_candidates == 0
-        {
-            return Err(LensError::new("lens_config_invalid"));
-        }
+            || config.max_candidates == 0)
+    {
+        return Err(LensError::new("lens_config_invalid"));
     }
     config.allowed_lenses = parsed_ids;
     Ok(())

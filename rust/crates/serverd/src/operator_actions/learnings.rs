@@ -36,7 +36,7 @@ pub(crate) fn run_operator_learnings_append(
             "learning_text_empty",
         );
     }
-    if text.as_bytes().len() > MAX_LEARNING_BYTES {
+    if text.len() > MAX_LEARNING_BYTES {
         return emit_refused_and_error(
             &mut audit,
             &audit_path,

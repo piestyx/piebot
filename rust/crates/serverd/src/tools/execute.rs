@@ -298,7 +298,7 @@ fn emit_audit_event(audit: &mut AuditAppender, event: AuditEvent) -> Result<(), 
     append_event(audit, event).map(|_| ()).map_err(|e| {
         ToolError::with_source(
             "tool_execution_audit_failed",
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
+            std::io::Error::other(e.to_string()),
         )
     })
 }

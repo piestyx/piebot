@@ -69,7 +69,7 @@ impl Default for RedactionConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub struct RedactionStrategies {
     #[serde(default)]
@@ -82,16 +82,6 @@ pub struct RedactionStrategies {
     pub allow_raw_artifacts: bool,
 }
 
-impl Default for RedactionStrategies {
-    fn default() -> Self {
-        Self {
-            drop_fields: Vec::new(),
-            redact_fields: Vec::new(),
-            regex_redactions: Vec::new(),
-            allow_raw_artifacts: false,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -221,8 +211,8 @@ fn normalize_config(config: &mut RedactionConfig) -> Result<(), RedactionError> 
     if config.max_provider_input_bytes == 0 && config.enabled {
         return Err(RedactionError::new("redaction_config_invalid"));
     }
-    config.strategies.drop_fields.sort_by(|a, b| a.cmp(b));
-    config.strategies.redact_fields.sort_by(|a, b| a.cmp(b));
+    config.strategies.drop_fields.sort();
+    config.strategies.redact_fields.sort();
     config.strategies.regex_redactions.sort_by(|a, b| {
         a.name
             .cmp(&b.name)

@@ -8,10 +8,10 @@ use crate::task::task_store::Intent;
 use pie_audit_log::AuditAppender;
 use pie_common::{canonical_json_bytes, sha256_bytes};
 use pie_kernel_state::{save, state_hash, StateDelta};
-use std::path::PathBuf;
+use std::path::Path;
 
 pub(crate) fn observe(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     tick_index: u64,
 ) -> Result<Observation, std::io::Error> {
     // Deterministic observation: list files under runtime root, sorted
@@ -30,7 +30,8 @@ pub(crate) fn observe(
             let entry = entry_result?;
             let path = entry.path();
             if path.is_dir() {
-                if path.file_name().and_then(|n| n.to_str()) == Some("logs") {
+                let name = path.file_name().and_then(|n| n.to_str());
+                if name == Some("logs") || name == Some("provider_responses") {
                     continue;
                 }
                 collect_files(base, &path, out)?;
@@ -82,11 +83,12 @@ pub(crate) fn task_request_hash(
     hash_canonical_value(&value)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn tick_core(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     audit: &mut AuditAppender,
-    audit_path: &PathBuf,
-    state_path: &PathBuf,
+    audit_path: &Path,
+    state_path: &Path,
     tick_index: u64,
     intent: &Intent,
     request_hash: &str,
