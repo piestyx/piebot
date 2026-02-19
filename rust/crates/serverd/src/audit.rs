@@ -284,6 +284,10 @@ pub(crate) enum AuditEvent {
     },
 
     // Stage 3 routing/provider events
+    ProviderModeSelected {
+        provider_mode: String,
+        config_hash: String,
+    },
     RouteSelected {
         provider_id: String,
         reason: String,
@@ -300,6 +304,24 @@ pub(crate) enum AuditEvent {
     },
     ProviderResponseWritten {
         provider_id: String,
+        request_hash: String,
+        artifact_ref: String,
+    },
+    ProviderResponseArtifactWritten {
+        provider_id: String,
+        request_hash: String,
+        artifact_ref: String,
+    },
+    ProviderResponseArtifactLoaded {
+        provider_id: String,
+        request_hash: String,
+        artifact_ref: String,
+    },
+    ProviderReplayMissingArtifact {
+        request_hash: String,
+        expected_artifact_path: String,
+    },
+    ProviderRecordConflict {
         request_hash: String,
         artifact_ref: String,
     },
