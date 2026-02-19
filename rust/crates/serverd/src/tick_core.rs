@@ -10,10 +10,7 @@ use pie_common::{canonical_json_bytes, sha256_bytes};
 use pie_kernel_state::{save, state_hash, StateDelta};
 use std::path::Path;
 
-pub(crate) fn observe(
-    runtime_root: &Path,
-    tick_index: u64,
-) -> Result<Observation, std::io::Error> {
+pub(crate) fn observe(runtime_root: &Path, tick_index: u64) -> Result<Observation, std::io::Error> {
     // Deterministic observation: list files under runtime root, sorted
     let mut observed = Vec::new();
 

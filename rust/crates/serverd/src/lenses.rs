@@ -455,7 +455,10 @@ fn lens_config_path(runtime_root: &Path) -> PathBuf {
 
 fn normalize_lens_config(config: &mut LensConfig) -> Result<(), LensError> {
     let parsed_ids = canonicalize_lens_ids(&config.allowed_lenses, "lens_config_invalid")?;
-    if config.recency_ticks.is_some_and(|recency_ticks| recency_ticks == 0) {
+    if config
+        .recency_ticks
+        .is_some_and(|recency_ticks| recency_ticks == 0)
+    {
         return Err(LensError::new("lens_config_invalid"));
     }
     if config

@@ -216,13 +216,16 @@ fn provider_replay_refuses_without_artifact() {
         Some("provider_replay_missing_artifact")
     );
     let events = read_event_types(&runtime_root);
-    assert!(events.iter().any(|e| e == "provider_replay_missing_artifact"));
+    assert!(events
+        .iter()
+        .any(|e| e == "provider_replay_missing_artifact"));
     assert!(!events.iter().any(|e| e == "provider_response_written"));
 }
 
 #[test]
 fn provider_live_writes_artifact_then_replay_loads_without_provider_call() {
-    let runtime_live = std::env::temp_dir().join(format!("pie_stage3_live_only_{}", Uuid::new_v4()));
+    let runtime_live =
+        std::env::temp_dir().join(format!("pie_stage3_live_only_{}", Uuid::new_v4()));
     let out_live = run_serverd_with(&runtime_live, 1, "tick:0", Some("live"), &[]);
     assert!(
         out_live.status.success(),
@@ -252,7 +255,10 @@ fn provider_live_writes_artifact_then_replay_loads_without_provider_call() {
     let runtime_probe =
         std::env::temp_dir().join(format!("pie_stage3_replay_probe_{}", Uuid::new_v4()));
     let out_missing = run_serverd_with(&runtime_probe, 1, "tick:0", Some("replay"), &[]);
-    assert!(!out_missing.status.success(), "replay should fail without artifact");
+    assert!(
+        !out_missing.status.success(),
+        "replay should fail without artifact"
+    );
     let replay_events = read_event_payloads(&runtime_probe);
     let replay_request_hash = replay_events
         .iter()
@@ -294,7 +300,8 @@ fn provider_live_writes_artifact_then_replay_loads_without_provider_call() {
     });
     let runtime_replay =
         std::env::temp_dir().join(format!("pie_stage3_replay_only_{}", Uuid::new_v4()));
-    let replay_artifact = artifact_path(&runtime_replay, "provider_responses", &replay_request_hash);
+    let replay_artifact =
+        artifact_path(&runtime_replay, "provider_responses", &replay_request_hash);
     std::fs::create_dir_all(
         replay_artifact
             .parent()
@@ -321,15 +328,11 @@ fn provider_live_writes_artifact_then_replay_loads_without_provider_call() {
     );
     let replay_state_hash = parse_state_hash(&out_replay);
     assert_eq!(live_state_hash, replay_state_hash);
-    assert!(
-        events_live_types
-            .iter()
-            .any(|e| e == "provider_response_artifact_written")
-    );
+    assert!(events_live_types
+        .iter()
+        .any(|e| e == "provider_response_artifact_written"));
     let replay_events_types = read_event_types(&runtime_replay);
-    assert!(
-        replay_events_types
-            .iter()
-            .any(|e| e == "provider_response_artifact_loaded")
-    );
+    assert!(replay_events_types
+        .iter()
+        .any(|e| e == "provider_response_artifact_loaded"));
 }

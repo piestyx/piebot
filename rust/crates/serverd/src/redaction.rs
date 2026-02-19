@@ -82,7 +82,6 @@ pub struct RedactionStrategies {
     pub allow_raw_artifacts: bool,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub struct RegexRedaction {

@@ -59,11 +59,6 @@ pub(crate) fn audit_event_tag(root: &Value) -> String {
 pub(crate) fn tag_prefix(value: &str) -> String {
     let trimmed = value.strip_prefix("sha256:").unwrap_or(value);
     let len = trimmed.len();
-    // Clamp: prefer TAG_MAX_LEN cap; otherwise ensure at least TAG_MIN_LEN (but never exceed actual len).
-    let take = if len >= TAG_MAX_LEN {
-        TAG_MAX_LEN
-    } else {
-        len.max(TAG_MIN_LEN)
-    };
+    let take = len.clamp(TAG_MIN_LEN, TAG_MAX_LEN);
     trimmed.chars().take(take).collect()
 }

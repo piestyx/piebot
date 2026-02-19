@@ -36,10 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     res
 }
 
-// Keep clippy happy (-D warnings) and keep signatures readable.
-type CliPaths = (PathBuf, Option<PathBuf>, Option<PathBuf>);
+type ResolvedPaths = (PathBuf, Option<PathBuf>, Option<PathBuf>);
 
-fn parse_args_or_prompt() -> Result<CliPaths, Box<dyn std::error::Error>> {
+fn parse_args_or_prompt() -> Result<ResolvedPaths, Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
     let mut runtime_arg: Option<String> = None;
     let mut skills_dir: Option<String> = None;
