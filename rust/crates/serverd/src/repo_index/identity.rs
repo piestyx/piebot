@@ -1,11 +1,14 @@
-use super::canonical::{canonical_rel_path, domain_separated_hash, list_files};
+use super::canonical::{
+    canonical_rel_path, domain_separated_hash_ref, list_files, sha256_digest_hex, sha256_ref,
+    sha256_ref_to_hex,
+};
 use super::config::RepoIndexConfig;
 use super::error::RepoIndexError;
 use super::schemas::REPO_IDENTITY_SCHEMA;
-use pie_common::{canonical_json_bytes, sha256_bytes};
+use pie_common::canonical_json_bytes;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -24,24 +27,33 @@ pub(crate) struct RepoIdentityArtifact {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct RepoIndexedFile {
+pub(crate) struct RepoIndexedFileMeta {
     pub path: String,
+    pub abs_path: PathBuf,
     pub file_sha256: String,
-    pub bytes: Vec<u8>,
+    pub bytes: u64,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct RepoIdentityBuildOutput {
     pub artifact: RepoIdentityArtifact,
-    pub files: Vec<RepoIndexedFile>,
+    pub files: Vec<RepoIndexedFileMeta>,
     pub file_count: u64,
     pub total_bytes: u64,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
-struct RepoIdentityHashPayload<'a> {
-    files: &'a [RepoFileEntry],
+struct RepoIdentityHashFileEntry {
+    path: String,
+    sha256_hex: String,
+    bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct RepoIdentityHashPayload {
+    files: Vec<RepoIdentityHashFileEntry>,
 }
 
 pub(crate) fn build_repo_identity(
@@ -49,7 +61,7 @@ pub(crate) fn build_repo_identity(
     cfg: &RepoIndexConfig,
 ) -> Result<RepoIdentityBuildOutput, RepoIndexError> {
     let file_paths = list_files(workspace_root, cfg)?;
-    let mut files: Vec<RepoIndexedFile> = Vec::with_capacity(file_paths.len());
+    let mut files: Vec<RepoIndexedFileMeta> = Vec::with_capacity(file_paths.len());
     let mut entries: Vec<RepoFileEntry> = Vec::with_capacity(file_paths.len());
     let mut total_bytes = 0u64;
     for file_path in file_paths {
@@ -67,27 +79,35 @@ pub(crate) fn build_repo_identity(
         if total_bytes > cfg.max_total_bytes {
             return Err(RepoIndexError::new("repo_index_total_too_large"));
         }
-        let file_sha256 = sha256_bytes(bytes.as_slice());
+        let file_sha256_hex = sha256_digest_hex(bytes.as_slice())?;
+        let file_sha256 = sha256_ref(file_sha256_hex.as_str())?;
         entries.push(RepoFileEntry {
             path: path.clone(),
             sha256: file_sha256.clone(),
             bytes: file_len,
         });
-        files.push(RepoIndexedFile {
+        files.push(RepoIndexedFileMeta {
             path,
+            abs_path: file_path,
             file_sha256,
-            bytes,
+            bytes: file_len,
         });
     }
     entries.sort_by(|left, right| left.path.cmp(&right.path));
     files.sort_by(|left, right| left.path.cmp(&right.path));
-    let payload_value = serde_json::to_value(RepoIdentityHashPayload {
-        files: entries.as_slice(),
-    })
-    .map_err(|_| RepoIndexError::new("repo_index_hash_failed"))?;
+    let mut hash_files: Vec<RepoIdentityHashFileEntry> = Vec::with_capacity(entries.len());
+    for entry in &entries {
+        hash_files.push(RepoIdentityHashFileEntry {
+            path: entry.path.clone(),
+            sha256_hex: sha256_ref_to_hex(entry.sha256.as_str())?,
+            bytes: entry.bytes,
+        });
+    }
+    let payload_value = serde_json::to_value(RepoIdentityHashPayload { files: hash_files })
+        .map_err(|_| RepoIndexError::new("repo_index_hash_failed"))?;
     let payload_bytes = canonical_json_bytes(&payload_value)
         .map_err(|_| RepoIndexError::new("repo_index_hash_failed"))?;
-    let root_hash = domain_separated_hash("repo_identity.v1", payload_bytes.as_slice());
+    let root_hash = domain_separated_hash_ref("repo_identity.v1", payload_bytes.as_slice())?;
     let artifact = RepoIdentityArtifact {
         schema: REPO_IDENTITY_SCHEMA.to_string(),
         files: entries,

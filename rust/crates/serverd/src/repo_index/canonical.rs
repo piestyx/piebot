@@ -5,13 +5,45 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 const BASELINE_DENIED_DIRS: [&str; 4] = [".git", "target", "runtime", "node_modules"];
+// Hashing contract:
+// 1) hash inputs use hex-only digests (or raw bytes), never "sha256:<hex>" strings.
+// 2) "sha256:<hex>" is display/storage form only for artifacts and audit fields.
+pub(crate) fn sha256_digest_hex(bytes: &[u8]) -> Result<String, RepoIndexError> {
+    let digest = sha256_bytes(bytes);
+    normalize_digest_hex(digest.as_str())
+        .map(|value| value.to_string())
+        .ok_or_else(|| RepoIndexError::new("repo_index_hash_failed"))
+}
 
-pub(crate) fn domain_separated_hash(domain: &str, payload: &[u8]) -> String {
+pub(crate) fn sha256_ref(hex: &str) -> Result<String, RepoIndexError> {
+    let normalized = normalize_digest_hex(hex)
+        .ok_or_else(|| RepoIndexError::new("repo_index_hash_failed"))?;
+    Ok(format!("sha256:{}", normalized))
+}
+
+pub(crate) fn sha256_ref_to_hex(value: &str) -> Result<String, RepoIndexError> {
+    normalize_digest_hex(value)
+        .map(|normalized| normalized.to_string())
+        .ok_or_else(|| RepoIndexError::new("repo_index_hash_failed"))
+}
+
+pub(crate) fn domain_separated_hash_hex(
+    domain: &str,
+    payload: &[u8],
+) -> Result<String, RepoIndexError> {
     let mut data = Vec::with_capacity(domain.len() + 1 + payload.len());
     data.extend_from_slice(domain.as_bytes());
     data.push(b'\n');
     data.extend_from_slice(payload);
-    sha256_bytes(data.as_slice())
+    sha256_digest_hex(data.as_slice())
+}
+
+pub(crate) fn domain_separated_hash_ref(
+    domain: &str,
+    payload: &[u8],
+) -> Result<String, RepoIndexError> {
+    let digest_hex = domain_separated_hash_hex(domain, payload)?;
+    sha256_ref(digest_hex.as_str())
 }
 
 pub(crate) fn canonical_rel_path(root: &Path, path: &Path) -> Result<String, RepoIndexError> {
@@ -158,6 +190,17 @@ fn prefix_match(path: &str, prefix: &str) -> bool {
         return rest.is_empty() || rest.starts_with('/');
     }
     false
+}
+
+fn normalize_digest_hex(value: &str) -> Option<&str> {
+    let normalized = value.strip_prefix("sha256:").unwrap_or(value);
+    if normalized.len() != 64 {
+        return None;
+    }
+    if !normalized.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(normalized)
 }
 
 #[cfg(test)]

@@ -92,6 +92,11 @@ fn read_event_payloads(runtime_root: &Path) -> Vec<serde_json::Value> {
 fn find_event(events: &[serde_json::Value], event_type: &str) -> serde_json::Value {
     common::find_event(events, event_type)
 }
+fn event_index(events: &[serde_json::Value], event_type: &str) -> Option<usize> {
+    events
+        .iter()
+        .position(|event| event.get("event_type").and_then(|v| v.as_str()) == Some(event_type))
+}
 
 fn artifact_path(runtime_root: &Path, subdir: &str, artifact_ref: &str) -> PathBuf {
     let trimmed = artifact_ref.strip_prefix("sha256:").unwrap_or(artifact_ref);
@@ -99,6 +104,17 @@ fn artifact_path(runtime_root: &Path, subdir: &str, artifact_ref: &str) -> PathB
         .join("artifacts")
         .join(subdir)
         .join(format!("{}.json", trimmed))
+}
+fn assert_sha256_ref(value: &str) {
+    assert!(value.starts_with("sha256:"), "hash must have sha256: prefix");
+    let hex = value
+        .strip_prefix("sha256:")
+        .expect("hash prefix already checked");
+    assert_eq!(hex.len(), 64, "sha256 hex length must be 64");
+    assert!(
+        hex.chars().all(|c| c.is_ascii_hexdigit()),
+        "sha256 hex must contain only hex chars"
+    );
 }
 
 fn assert_canonical_relative_path(value: &str) {
@@ -180,20 +196,24 @@ fn repo_identity_and_snapshot_are_deterministic_across_runtime_roots() {
         .get("root_hash")
         .and_then(|v| v.as_str())
         .expect("identity root hash one");
+    assert_sha256_ref(identity_root_one);
     let identity_root_two = identity_two
         .get("root_hash")
         .and_then(|v| v.as_str())
         .expect("identity root hash two");
+    assert_sha256_ref(identity_root_two);
     assert_eq!(identity_root_one, identity_root_two);
 
     let snapshot_root_one = snapshot_one
         .get("root_hash")
         .and_then(|v| v.as_str())
         .expect("snapshot root hash one");
+    assert_sha256_ref(snapshot_root_one);
     let snapshot_root_two = snapshot_two
         .get("root_hash")
         .and_then(|v| v.as_str())
         .expect("snapshot root hash two");
+    assert_sha256_ref(snapshot_root_two);
     assert_eq!(snapshot_root_one, snapshot_root_two);
 
     let identity_ref_one = identity_one
@@ -253,7 +273,12 @@ fn repo_identity_and_snapshot_are_deterministic_across_runtime_roots() {
             .get("path")
             .and_then(|v| v.as_str())
             .expect("identity file path");
+        let sha256 = file
+            .get("sha256")
+            .and_then(|v| v.as_str())
+            .expect("identity file sha256");
         assert_canonical_relative_path(path);
+        assert_sha256_ref(sha256);
         path_order.push(path.to_string());
     }
     let mut sorted = path_order.clone();
@@ -279,17 +304,84 @@ fn repo_identity_and_snapshot_are_deterministic_across_runtime_roots() {
         .and_then(|v| v.as_array())
         .expect("snapshot chunks");
     assert!(!chunks.is_empty(), "snapshot chunks should not be empty");
+    let fixed_chunk_bytes = snapshot_value
+        .get("fixed_chunk_bytes")
+        .and_then(|v| v.as_u64())
+        .expect("fixed_chunk_bytes must be present for fixed-size mode");
+    assert_eq!(
+        snapshot_value.get("chunk_mode").and_then(|v| v.as_str()),
+        Some("fixed_size")
+    );
     for chunk in chunks {
         let path = chunk
             .get("path")
             .and_then(|v| v.as_str())
             .expect("chunk path");
+        let file_sha256 = chunk
+            .get("file_sha256")
+            .and_then(|v| v.as_str())
+            .expect("chunk file sha256");
+        let chunk_sha256 = chunk
+            .get("chunk_sha256")
+            .and_then(|v| v.as_str())
+            .expect("chunk sha256");
+        let chunk_hash = chunk
+            .get("chunk_hash")
+            .and_then(|v| v.as_str())
+            .expect("chunk hash");
         assert_canonical_relative_path(path);
+        assert_sha256_ref(file_sha256);
+        assert_sha256_ref(chunk_sha256);
+        assert_sha256_ref(chunk_hash);
     }
+    let expected_chunk_count: u64 = files
+        .iter()
+        .map(|file| {
+            let bytes = file
+                .get("bytes")
+                .and_then(|v| v.as_u64())
+                .expect("identity file bytes");
+            if bytes == 0 {
+                1
+            } else {
+                (bytes + fixed_chunk_bytes - 1) / fixed_chunk_bytes
+            }
+        })
+        .sum();
+    assert_eq!(chunks.len() as u64, expected_chunk_count);
     assert_eq!(
         snapshot_one.get("file_count").and_then(|v| v.as_u64()),
         Some(files.len() as u64)
     );
+    assert_eq!(
+        snapshot_one.get("chunk_count").and_then(|v| v.as_u64()),
+        Some(expected_chunk_count)
+    );
+    let mut multi_chunk_offsets: Vec<(u64, u64)> = chunks
+        .iter()
+        .filter_map(|chunk| {
+            let path = chunk.get("path").and_then(|v| v.as_str())?;
+            if path != "nested/multi_chunk.txt" {
+                return None;
+            }
+            let start = chunk.get("start").and_then(|v| v.as_u64())?;
+            let len = chunk.get("len").and_then(|v| v.as_u64())?;
+            Some((start, len))
+        })
+        .collect();
+    multi_chunk_offsets.sort();
+    assert_eq!(multi_chunk_offsets, vec![(0, 8), (8, 8)]);
+    let route_selected_idx =
+        event_index(&events_one, "route_selected").expect("route_selected missing");
+    let identity_idx =
+        event_index(&events_one, "repo_identity_written").expect("repo_identity_written missing");
+    let snapshot_idx = event_index(&events_one, "repo_index_snapshot_written")
+        .expect("repo_index_snapshot_written missing");
+    assert!(route_selected_idx < identity_idx);
+    assert!(identity_idx < snapshot_idx);
+    if let Some(retrieval_idx) = event_index(&events_one, "retrieval_executed") {
+        assert!(snapshot_idx < retrieval_idx);
+    }
 }
 
 #[test]
@@ -334,9 +426,21 @@ fn repo_index_artifacts_are_audited_and_not_hidden_state() {
         identity_value.get("root_hash").and_then(|v| v.as_str()),
         identity_event.get("root_hash").and_then(|v| v.as_str())
     );
+    assert_sha256_ref(
+        identity_event
+            .get("root_hash")
+            .and_then(|v| v.as_str())
+            .expect("identity root hash"),
+    );
     assert_eq!(
         snapshot_value.get("root_hash").and_then(|v| v.as_str()),
         snapshot_event.get("root_hash").and_then(|v| v.as_str())
+    );
+    assert_sha256_ref(
+        snapshot_event
+            .get("root_hash")
+            .and_then(|v| v.as_str())
+            .expect("snapshot root hash"),
     );
 
     assert!(
