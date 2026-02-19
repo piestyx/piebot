@@ -28,7 +28,10 @@ pub(crate) fn observe(runtime_root: &Path, tick_index: u64) -> Result<Observatio
             let path = entry.path();
             if path.is_dir() {
                 let name = path.file_name().and_then(|n| n.to_str());
-                if name == Some("logs") || name == Some("provider_responses") {
+                if name == Some("logs")
+                    || name == Some("provider_responses")
+                    || name == Some("tool_outputs")
+                {
                     continue;
                 }
                 collect_files(base, &path, out)?;

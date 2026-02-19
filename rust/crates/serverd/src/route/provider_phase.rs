@@ -45,8 +45,12 @@ use crate::task::task_store::Intent;
 use crate::tick_core::{
     hash_canonical_value, hash_observation, intent_kind, observe, task_request_hash, tick_core,
 };
-use crate::tools::execute::{execute_tool, parse_tool_call_from_provider_output};
+use crate::tools::execute::{
+    execute_tool, load_tool_output_ref_from_request_hash, parse_tool_call_from_provider_output,
+    read_tool_output, TOOL_OUTPUT_WORKSPACE_APPLY_PATCH_SCHEMA,
+};
 use crate::tools::policy::{PolicyConfig, ToolPolicyInput};
+use crate::tools::workspace_apply_patch;
 use crate::tools::ToolRegistry;
 use crate::policy::workspace::WorkspaceContext;
 use pie_audit_log::AuditAppender;
@@ -1950,26 +1954,125 @@ pub(crate) fn run_route_tick(
                 request_hash: call.request_hash.as_str(),
                 input_ref: input_ref.as_str(),
             };
-            let output_ref = match execute_tool(
-                runtime_root,
-                &registry,
-                &tool_policy.config,
-                &policy_input,
-                Some(workspace_ctx),
-                audit,
-            ) {
-                Ok(output_ref) => output_ref,
-                Err(e) => {
-                    fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
-                    unreachable!();
+            let output_ref = if provider_mode == ProviderMode::Replay
+                && call.tool_id.as_str() == workspace_apply_patch::WORKSPACE_APPLY_PATCH_TOOL_ID
+            {
+                match load_tool_output_ref_from_request_hash(
+                    runtime_root,
+                    call.request_hash.as_str(),
+                    &call.tool_id,
+                    TOOL_OUTPUT_WORKSPACE_APPLY_PATCH_SCHEMA,
+                ) {
+                    Ok(output_ref) => output_ref,
+                    Err(e) => {
+                        fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
+                        unreachable!();
+                    }
+                }
+            } else {
+                match execute_tool(
+                    runtime_root,
+                    &registry,
+                    &tool_policy.config,
+                    &policy_input,
+                    Some(workspace_ctx),
+                    audit,
+                ) {
+                    Ok(output_ref) => output_ref,
+                    Err(e) => {
+                        fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
+                        unreachable!();
+                    }
                 }
             };
             tool_output_refs.push(output_ref.clone());
             capsule.add_tool_io(RunCapsuleToolIo {
                 tool_id: call.tool_id.as_str().to_string(),
                 input_ref,
-                output_ref,
+                output_ref: output_ref.clone(),
             });
+            if call.tool_id.as_str() == workspace_apply_patch::WORKSPACE_APPLY_PATCH_TOOL_ID {
+                let output = match read_tool_output(runtime_root, output_ref.as_str()) {
+                    Ok(value) => value,
+                    Err(e) => {
+                        fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
+                        unreachable!();
+                    }
+                };
+                let patch_result: workspace_apply_patch::WorkspaceApplyPatchResult =
+                    match serde_json::from_value(output.output.clone()) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            fail_run(
+                                audit,
+                                audit_path,
+                                runtime_root,
+                                last_state_hash,
+                                "tool_output_invalid",
+                            )?;
+                            unreachable!();
+                        }
+                    };
+                if retrieval.config.enabled
+                    && retrieval.config.kind == RetrievalKind::Gsama
+                    && patch_result.action == workspace_apply_patch::WorkspacePatchAction::Applied
+                {
+                    let context_ref_for_anchor = context_selection
+                        .context_refs
+                        .iter()
+                        .find(|value| value.starts_with("port_plans/"))
+                        .cloned()
+                        .or_else(|| normalize_ref("contexts", context_ref.as_str()))
+                        .unwrap_or_else(|| format!("contexts/{}", context_ref));
+                    let mut extra_tags = vec![
+                        ("entry_type".to_string(), "workspace_patch".to_string()),
+                        ("target_path".to_string(), patch_result.target_path.clone()),
+                        (
+                            "before".to_string(),
+                            patch_result.before_sha256_hex.clone(),
+                        ),
+                        (
+                            "after".to_string(),
+                            patch_result.after_sha256_hex.clone(),
+                        ),
+                    ];
+                    if let Some(approval_ref) = patch_result.approval_ref.as_ref() {
+                        extra_tags.push(("approval_ref".to_string(), approval_ref.clone()));
+                    }
+                    let text = format!(
+                        "entry_type:workspace_patch\ntarget_path:{}\nbefore:{}\nafter:{}",
+                        patch_result.target_path,
+                        patch_result.before_sha256_hex,
+                        patch_result.after_sha256_hex
+                    );
+                    if let Err(e) = append_episode_to_gsama_store(
+                        runtime_root,
+                        &retrieval.config,
+                        &GsamaEpisodeWriteInput {
+                            text: &text,
+                            tick_index,
+                            episode_ref: format!("workspace_patch/{}", call.request_hash).as_str(),
+                            context_ref: context_ref_for_anchor.as_str(),
+                            intent_kind: intent_label.as_str(),
+                            semantic_vector: None,
+                            entropy: 0.0,
+                            feature_profile: GsamaFeatureProfile {
+                                turn_index: tick_index as f32,
+                                time_since_last: 0.0,
+                                write_frequency: pending_count as f32,
+                                entropy: 0.0,
+                                self_state_shift_cosine: 0.0,
+                                importance: 1.0,
+                            },
+                            extra_tags,
+                        },
+                        provider_mode,
+                    ) {
+                        fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
+                        unreachable!();
+                    }
+                }
+            }
         }
     }
 

@@ -2,8 +2,12 @@ use super::policy::{PolicyConfig, PolicyOutcome, ToolPolicy, ToolPolicyInput};
 use super::{ToolError, ToolId, ToolRegistry, ToolSpec};
 use crate::audit::{append_event, AuditEvent};
 use crate::policy::workspace::{enforce_workspace_path, WorkspaceContext};
-use crate::runtime::artifacts::{artifact_filename, write_json_artifact_atomic};
+use crate::runtime::artifacts::{
+    artifact_filename, is_sha256_ref, write_json_artifact_at_ref_atomic, write_json_artifact_atomic,
+};
+use crate::tools::workspace_apply_patch;
 use pie_audit_log::AuditAppender;
+use pie_common::{canonical_json_bytes, sha256_bytes};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,6 +18,10 @@ pub const TOOL_INPUT_NOOP_SCHEMA: &str = "serverd.tool_input.noop.v1";
 pub const TOOL_OUTPUT_NOOP_SCHEMA: &str = "serverd.tool_output.noop.v1";
 pub const TOOL_INPUT_FS_PROBE_SCHEMA: &str = "serverd.tool_input.fs_probe.v1";
 pub const TOOL_OUTPUT_FS_PROBE_SCHEMA: &str = "serverd.tool_output.fs_probe.v1";
+pub const TOOL_INPUT_WORKSPACE_APPLY_PATCH_SCHEMA: &str =
+    workspace_apply_patch::WORKSPACE_APPLY_PATCH_REQUEST_SCHEMA;
+pub const TOOL_OUTPUT_WORKSPACE_APPLY_PATCH_SCHEMA: &str =
+    workspace_apply_patch::WORKSPACE_APPLY_PATCH_RESULT_SCHEMA;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -25,6 +33,12 @@ pub struct ToolCall {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
     pub request_hash: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinToolExecution {
+    output_value: serde_json::Value,
+    workspace_patch: Option<workspace_apply_patch::WorkspaceApplyPatchExecution>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,7 +102,16 @@ pub fn execute_tool(
         }
     }
 
-    let output_value = execute_builtin_tool(spec, &input_value)?;
+    let execution = execute_builtin_tool(
+        runtime_root,
+        workspace_ctx,
+        spec,
+        &input_value,
+        input.input_ref,
+        input.request_hash,
+        audit,
+    )?;
+    let output_value = execution.output_value;
     validate_output_schema(&output_value, &spec.output_schema)?;
     let output = ToolOutput {
         schema: TOOL_OUTPUT_SCHEMA.to_string(),
@@ -101,6 +124,27 @@ pub fn execute_tool(
     let output_value =
         serde_json::to_value(&output).map_err(|_| ToolError::new("tool_output_invalid"))?;
     let output_ref = write_json_artifact_atomic(runtime_root, "tool_outputs", &output_value)?;
+    if let Some(workspace_execution) = execution.workspace_patch.as_ref() {
+        write_json_artifact_at_ref_atomic(
+            runtime_root,
+            "tool_outputs",
+            input.request_hash,
+            &output_value,
+        )?;
+        let receipt_value =
+            workspace_apply_patch::build_receipt_value(workspace_execution, output_ref.as_str())?;
+        let receipt_ref =
+            write_json_artifact_atomic(runtime_root, "workspace_patch_receipt", &receipt_value)?;
+        emit_workspace_patch_applied(
+            audit,
+            workspace_execution.request_ref.as_str(),
+            output_ref.as_str(),
+            workspace_execution.result.target_path.as_str(),
+            workspace_execution.result.before_sha256_hex.as_str(),
+            workspace_execution.result.after_sha256_hex.as_str(),
+            receipt_ref.as_str(),
+        )?;
+    }
 
     emit_tool_executed(
         audit,
@@ -149,9 +193,14 @@ fn validate_tool_call_input(call: &ToolCall) -> Result<(), ToolError> {
 }
 
 fn execute_builtin_tool(
+    runtime_root: &Path,
+    workspace_ctx: Option<&WorkspaceContext>,
     spec: &ToolSpec,
-    _input: &serde_json::Value,
-) -> Result<serde_json::Value, ToolError> {
+    input: &serde_json::Value,
+    input_ref: &str,
+    request_hash: &str,
+    audit: &mut AuditAppender,
+) -> Result<BuiltinToolExecution, ToolError> {
     match spec.id.as_str() {
         "tools.noop" => {
             if spec.input_schema != TOOL_INPUT_NOOP_SCHEMA
@@ -159,10 +208,13 @@ fn execute_builtin_tool(
             {
                 return Err(ToolError::new("tool_spec_invalid"));
             }
-            Ok(serde_json::json!({
-                "schema": TOOL_OUTPUT_NOOP_SCHEMA,
-                "ok": true
-            }))
+            Ok(BuiltinToolExecution {
+                output_value: serde_json::json!({
+                    "schema": TOOL_OUTPUT_NOOP_SCHEMA,
+                    "ok": true
+                }),
+                workspace_patch: None,
+            })
         }
         "tools.fs_probe" => {
             if spec.input_schema != TOOL_INPUT_FS_PROBE_SCHEMA
@@ -170,10 +222,37 @@ fn execute_builtin_tool(
             {
                 return Err(ToolError::new("tool_spec_invalid"));
             }
-            Ok(serde_json::json!({
-                "schema": TOOL_OUTPUT_FS_PROBE_SCHEMA,
-                "ok": true
-            }))
+            Ok(BuiltinToolExecution {
+                output_value: serde_json::json!({
+                    "schema": TOOL_OUTPUT_FS_PROBE_SCHEMA,
+                    "ok": true
+                }),
+                workspace_patch: None,
+            })
+        }
+        workspace_apply_patch::WORKSPACE_APPLY_PATCH_TOOL_ID => {
+            if spec.input_schema != TOOL_INPUT_WORKSPACE_APPLY_PATCH_SCHEMA
+                || spec.output_schema != TOOL_OUTPUT_WORKSPACE_APPLY_PATCH_SCHEMA
+            {
+                return Err(ToolError::new("tool_spec_invalid"));
+            }
+            let workspace_ctx = workspace_ctx.ok_or_else(|| ToolError::new("workspace_root_invalid"))?;
+            emit_workspace_patch_requested(audit, input_ref)?;
+            let execution =
+                match workspace_apply_patch::execute(runtime_root, workspace_ctx, input_ref, input) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        emit_workspace_patch_rejected(audit, input_ref, err.reason())?;
+                        return Err(err);
+                    }
+                };
+            let output_value = serde_json::to_value(&execution.result)
+                .map_err(|_| ToolError::new("tool_output_invalid"))?;
+            let _ = request_hash;
+            Ok(BuiltinToolExecution {
+                output_value,
+                workspace_patch: Some(execution),
+            })
         }
         _ => Err(ToolError::new("tool_not_implemented")),
     }
@@ -227,6 +306,102 @@ fn emit_tool_selected(
             request_hash: request_hash.to_string(),
         },
     )
+}
+
+fn emit_workspace_patch_requested(audit: &mut AuditAppender, request_ref: &str) -> Result<(), ToolError> {
+    emit_audit_event(
+        audit,
+        AuditEvent::WorkspacePatchRequested {
+            request_ref: request_ref.to_string(),
+        },
+    )
+}
+
+fn emit_workspace_patch_applied(
+    audit: &mut AuditAppender,
+    request_ref: &str,
+    result_ref: &str,
+    target_path: &str,
+    before_hex: &str,
+    after_hex: &str,
+    receipt_ref: &str,
+) -> Result<(), ToolError> {
+    emit_audit_event(
+        audit,
+        AuditEvent::WorkspacePatchApplied {
+            request_ref: request_ref.to_string(),
+            result_ref: result_ref.to_string(),
+            target_path: target_path.to_string(),
+            before_hex: before_hex.to_string(),
+            after_hex: after_hex.to_string(),
+            receipt_ref: Some(receipt_ref.to_string()),
+        },
+    )
+}
+
+fn emit_workspace_patch_rejected(
+    audit: &mut AuditAppender,
+    request_ref: &str,
+    reason: &'static str,
+) -> Result<(), ToolError> {
+    emit_audit_event(
+        audit,
+        AuditEvent::WorkspacePatchRejected {
+            request_ref: request_ref.to_string(),
+            reason: reason.to_string(),
+        },
+    )
+}
+
+pub(crate) fn read_tool_output(
+    runtime_root: &Path,
+    output_ref: &str,
+) -> Result<ToolOutput, ToolError> {
+    let path = tool_artifact_path(runtime_root, "tool_outputs", output_ref);
+    let bytes = fs::read(&path).map_err(|e| ToolError::with_source("tool_output_read_failed", e))?;
+    let output: ToolOutput =
+        serde_json::from_slice(&bytes).map_err(|_| ToolError::new("tool_output_invalid"))?;
+    if output.schema != TOOL_OUTPUT_SCHEMA {
+        return Err(ToolError::new("tool_output_invalid"));
+    }
+    Ok(output)
+}
+
+pub(crate) fn load_tool_output_ref_from_request_hash(
+    runtime_root: &Path,
+    request_hash: &str,
+    expected_tool_id: &ToolId,
+    expected_output_schema: &str,
+) -> Result<String, ToolError> {
+    if !is_sha256_ref(request_hash) {
+        return Err(ToolError::new("tool_request_hash_invalid"));
+    }
+    let path = tool_artifact_path(runtime_root, "tool_outputs", request_hash);
+    let bytes =
+        fs::read(&path).map_err(|_| ToolError::new("tool_replay_missing_output_artifact"))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| ToolError::new("tool_output_invalid"))?;
+    let output: ToolOutput =
+        serde_json::from_value(value.clone()).map_err(|_| ToolError::new("tool_output_invalid"))?;
+    if output.schema != TOOL_OUTPUT_SCHEMA || output.tool_id != *expected_tool_id {
+        return Err(ToolError::new("tool_output_invalid"));
+    }
+    let schema = output
+        .output
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if schema != expected_output_schema {
+        return Err(ToolError::new("tool_output_invalid"));
+    }
+    let canonical =
+        canonical_json_bytes(&value).map_err(|_| ToolError::new("tool_output_invalid"))?;
+    let output_ref = sha256_bytes(&canonical);
+    let output_hash_path = tool_artifact_path(runtime_root, "tool_outputs", &output_ref);
+    if !output_hash_path.is_file() {
+        return Err(ToolError::new("tool_replay_missing_output_artifact"));
+    }
+    Ok(output_ref)
 }
 
 fn emit_tool_executed(

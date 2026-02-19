@@ -8,6 +8,7 @@ pub const TOOL_SPEC_SCHEMA: &str = "serverd.tool_spec.v1";
 pub const TOOL_REGISTRY_SCHEMA: &str = "serverd.tool_registry.v1";
 pub mod execute;
 pub mod policy;
+pub mod workspace_apply_patch;
 
 #[derive(Debug)]
 pub struct ToolError {

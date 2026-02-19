@@ -37,6 +37,15 @@ fn mock_tool_input_path() -> String {
     std::env::var("MOCK_TOOL_INPUT_PATH").unwrap_or_else(|_| "allowed.txt".to_string())
 }
 
+fn mock_tool_tool_id() -> String {
+    std::env::var("MOCK_TOOL_TOOL_ID").unwrap_or_else(|_| "tools.noop".to_string())
+}
+
+fn mock_tool_input_json() -> Option<serde_json::Value> {
+    let raw = std::env::var("MOCK_TOOL_INPUT_JSON").ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
 fn mock_tool_emit_both_inputs() -> bool {
     std::env::var("MOCK_TOOL_BOTH_INPUTS")
         .map(|v| v == "1")
@@ -355,9 +364,12 @@ impl ModelProvider for MockToolProvider {
 
     fn infer(&self, req: &ProviderRequest) -> Result<ProviderResponse, ProviderError> {
         panic_if_provider_called();
-        let input_value = serde_json::json!({
-            "schema": TOOL_INPUT_NOOP_SCHEMA,
-            "path": mock_tool_input_path()
+        let tool_id = mock_tool_tool_id();
+        let input_value = mock_tool_input_json().unwrap_or_else(|| {
+            serde_json::json!({
+                "schema": TOOL_INPUT_NOOP_SCHEMA,
+                "path": mock_tool_input_path()
+            })
         });
         let input_ref = if mock_tool_emit_both_inputs() {
             Some(tool_input_ref_from_value(&input_value)?)
@@ -369,7 +381,7 @@ impl ModelProvider for MockToolProvider {
             "output": format!("mock_tool:{}", req.request_hash),
             "tool_call": {
                 "schema": TOOL_CALL_SCHEMA,
-                "tool_id": "tools.noop",
+                "tool_id": tool_id,
                 "input": input_value,
                 "request_hash": req.request_hash
             }

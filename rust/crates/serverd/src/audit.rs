@@ -498,6 +498,22 @@ pub(crate) enum AuditEvent {
         reason: String,
         request_hash: String,
     },
+    WorkspacePatchRequested {
+        request_ref: String,
+    },
+    WorkspacePatchApplied {
+        request_ref: String,
+        result_ref: String,
+        target_path: String,
+        before_hex: String,
+        after_hex: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        receipt_ref: Option<String>,
+    },
+    WorkspacePatchRejected {
+        request_ref: String,
+        reason: String,
+    },
 
     // Stage 4 events
     TaskEnqueued {
