@@ -5,10 +5,13 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub fn serverd_exe() -> std::path::PathBuf {
-    // This forces Cargo to provide the path to the built binary.
-    // If it isn't provided, that means the binary target wasn't built for this test invocation.
-    let p = option_env!("CARGO_BIN_EXE_serverd")
-        .expect("CARGO_BIN_EXE_serverd not set. Ensure the serverd binary target is built for tests (bin feature/defaults).");
+    let p = match option_env!("CARGO_BIN_EXE_serverd") {
+        Some(p) => p,
+        None => panic!(
+            "CARGO_BIN_EXE_serverd not set. Run tests with `cargo test -p serverd --features bin` \
+             (and ensure the integration tests are gated with `#![cfg(feature = \"bin\")]`)."
+        ),
+    };
     std::path::PathBuf::from(p)
 }
 
