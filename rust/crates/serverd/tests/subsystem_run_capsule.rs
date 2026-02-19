@@ -439,7 +439,7 @@ fn run_capsule_contains_required_provenance() {
 
 #[test]
 fn run_capsule_tool_hashes_absent_without_tool_execution() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_root = std::env::temp_dir().join(format!("pie_capsule_notools_{}", Uuid::new_v4()));
     write_initial_state(&runtime_root);
     write_context_policy(&runtime_root);
@@ -482,7 +482,7 @@ fn run_capsule_tool_hashes_absent_without_tool_execution() {
 
 #[test]
 fn run_capsule_tool_hashes_present_with_tool_execution() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_root = std::env::temp_dir().join(format!("pie_capsule_tools_{}", Uuid::new_v4()));
     write_initial_state(&runtime_root);
     write_context_policy(&runtime_root);

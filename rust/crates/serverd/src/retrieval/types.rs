@@ -1,4 +1,5 @@
 use crate::runtime::artifacts::{artifact_filename, write_json_artifact_atomic};
+use crate::command::ProviderMode;
 use crate::memory::{
     list_episode_chain, load_memory_config, load_working_memory, open_memory_enabled, read_episode,
 };
@@ -155,10 +156,32 @@ pub(crate) fn append_episode_to_gsama_store(
     runtime_root: &Path,
     config: &RetrievalConfig,
     input: &GsamaEpisodeWriteInput<'_>,
+    provider_mode: ProviderMode,
 ) -> Result<(), RetrievalError> {
     validate_gsama_write_input(input)?;
     if config.gsama_store_capacity == 0 || config.gsama_vector_dim == 0 {
         return Err(RetrievalError::new("retrieval_config_invalid"));
+    }
+    let mut store = match load_gsama_store(runtime_root) {
+        Ok(store) => {
+            if store.dim() != config.gsama_vector_dim {
+                return Err(RetrievalError::new("gsama_store_dim_mismatch"));
+            }
+            if store.capacity() != config.gsama_store_capacity {
+                return Err(RetrievalError::new("gsama_store_capacity_mismatch"));
+            }
+            store
+        }
+        Err(err) if err.reason() == "gsama_store_not_found" => {
+            if matches!(provider_mode, ProviderMode::Replay) {
+                return Err(RetrievalError::new("replay_requires_existing_gsama_store"));
+            }
+            gsama_core::Store::new(config.gsama_vector_dim, config.gsama_store_capacity)
+        }
+        Err(err) => return Err(err),
+    };
+    if matches!(provider_mode, ProviderMode::Replay) {
+        return Ok(());
     }
     let _semantic_dim = gsama_semantic_dim(config)?;
     let vector_mode = parse_gsama_vector_source_mode(config)?;
@@ -170,22 +193,9 @@ pub(crate) fn append_episode_to_gsama_store(
         input.feature_profile,
         "gsama_write_vector_missing",
     )?;
-
-    let mut store = match load_gsama_store(runtime_root) {
-        Ok(store) => {
-            if store.dim() != config.gsama_vector_dim || store.dim() != vector.len() {
-                return Err(RetrievalError::new("gsama_store_dim_mismatch"));
-            }
-            if store.capacity() != config.gsama_store_capacity {
-                return Err(RetrievalError::new("gsama_store_capacity_mismatch"));
-            }
-            store
-        }
-        Err(err) if err.reason() == "gsama_store_not_found" => {
-            gsama_core::Store::new(config.gsama_vector_dim, config.gsama_store_capacity)
-        }
-        Err(err) => return Err(err),
-    };
+    if store.dim() != vector.len() {
+        return Err(RetrievalError::new("gsama_store_dim_mismatch"));
+    }
 
     let tags = vec![
         ("context_ref".to_string(), input.context_ref.to_string()),

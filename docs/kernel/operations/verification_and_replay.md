@@ -36,6 +36,19 @@ Primary replay-related reasons include:
     - `task_not_found`, `invalid_task_json`, `invalid_task_request`
     - `task_status_missing`, `task_rejected`, `task_status_write_failed`
 
+## Route provider replay mode (`--mode route --provider replay`)
+
+Entry: route execution path in `route/provider_phase.rs` with provider mode `Replay`.
+
+Key behavior:
+    - Provider response is loaded from `artifacts/provider_responses/<request_hash>.json` (provider call is not performed).
+    - Retrieval still runs, but GSAMA replay write path is no-write.
+    - GSAMA store must already exist in replay (`replay_requires_existing_gsama_store` fail-closed if missing).
+    - `memory/gsama/store_snapshot.json` remains byte-stable across replay runs.
+
+Evidence:
+    - `tests/pipeline_b5_workflow_demo.rs`
+
 ## Parity expectations
 
 For equivalent task+delta artifacts, replay should produce identical final state hash across runtime roots.

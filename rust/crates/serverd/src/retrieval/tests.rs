@@ -317,7 +317,12 @@ mod tests {
                 importance: 1.0,
             },
         };
-        let err = append_episode_to_gsama_store(runtime_root, &config, &input)
+        let err = append_episode_to_gsama_store(
+            runtime_root,
+            &config,
+            &input,
+            crate::command::ProviderMode::Live,
+        )
             .expect_err("invalid write refs must fail before store write");
         assert_eq!(err.reason(), GSAMA_WRITE_INPUT_INVALID);
     }

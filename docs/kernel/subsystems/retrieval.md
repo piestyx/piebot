@@ -19,6 +19,7 @@ Provide deterministic context candidate selection for route ticks, either via me
 - Invalid or missing GSAMA vectors for gsama mode.
 - Oversized retrieval result sets.
 - Silent retrieval source degradation.
+- Replay-time GSAMA mutation (disk or in-memory write path drift).
 
 ## Inputs and outputs (artifact refs)
 
@@ -44,7 +45,7 @@ Provide deterministic context candidate selection for route ticks, either via me
 - Config: `retrieval_config_read_failed`, `retrieval_config_invalid`
 - Query: `retrieval_query_invalid`, `retrieval_namespace_denied`
 - Sources/results: `retrieval_source_unavailable`, `retrieval_selection_exceeds_max_items`, `retrieval_selection_exceeds_max_bytes`, `retrieval_failed`
-- GSAMA: `gsama_query_vector_missing`, `gsama_query_vector_dim_mismatch`, `gsama_store_not_found`, `gsama_store_dim_mismatch`, `gsama_store_capacity_mismatch`, `gsama_store_load_failed`, `gsama_store_write_failed`, `gsama_retrieval_failed`
+- GSAMA: `gsama_query_vector_missing`, `gsama_query_vector_dim_mismatch`, `gsama_store_not_found`, `gsama_store_dim_mismatch`, `gsama_store_capacity_mismatch`, `gsama_store_load_failed`, `gsama_store_write_failed`, `gsama_retrieval_failed`, `replay_requires_existing_gsama_store`
 
 ## Determinism guarantees
 
@@ -52,6 +53,7 @@ Provide deterministic context candidate selection for route ticks, either via me
 - `refs` ranking has deterministic tie-breakers.
 - Result-set hash computed from canonical JSON of results + context candidates.
 - GSAMA preflight enforces fixed dimension/capacity against config.
+- GSAMA writeback is provider-mode typed; replay mode is no-write (no `store.write(...)`, no `store_snapshot.json` persistence).
 
 ## Config file(s) + schema(s)
 
@@ -73,6 +75,7 @@ Provide deterministic context candidate selection for route ticks, either via me
 
 - `tests/stage13_retrieval.rs`
 - `tests/stage_gsama_retrieval.rs`
+- `tests/pipeline_b5_workflow_demo.rs`
 - `tests/modes.rs` (mode overlays impacting retrieval)
 - `tests/stage_gate_7_12.rs`
 

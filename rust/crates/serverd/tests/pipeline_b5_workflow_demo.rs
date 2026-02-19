@@ -1,11 +1,9 @@
 #![cfg(feature = "bin")]
-// B5 Hardening Stages:
-// Stage 1: Isolation helper uses deny-list approach (logs, audit_rust.jsonl, tmp/cache)
-// Stage 2: result_row_ref() helper supports multiple schema evolution paths
-//          Also used in run_replay_and_collect() to assert GSAMA-sourced context
-// Stage 3: GSAMA immutability check (DISABLED - production mutates snapshot during replay)
-//          When fixed, unstage the assert_eq!(hash_before, hash_after)
-// Stage 4: Added assert_before("retrieval_executed", "context_selected")
+// B5 closeout invariants:
+// - replay is deterministic and provider-pure
+// - replay does not mutate GSAMA snapshot bytes
+// - continuity comes from GSAMA-sourced retrieval rows
+// - replay runtime is pre-validated for isolation
 
 use pie_audit_log::AuditAppender;
 use serverd::output_contract::OUTPUT_CONTRACT_SCHEMA;
@@ -23,7 +21,7 @@ use std::sync::Mutex;
 use uuid::Uuid;
 mod common;
 
-// Stage 3: Helper to hash bytes for GSAMA immutability checks
+// Helper to hash GSAMA snapshot bytes for immutability assertions.
 fn hash_bytes(bytes: &[u8]) -> String {
     pie_common::sha256_bytes(bytes)
 }
@@ -271,23 +269,35 @@ fn artifact_path(runtime_root: &Path, subdir: &str, artifact_ref: &str) -> PathB
         .join(format!("{}.json", trimmed))
 }
 
-// Stage 1: Assert replay runtime isolation - deny known-bad, allow growth
+// Assert replay runtime isolation before replay execution.
 fn assert_replay_runtime_isolation(runtime_root: &Path) {
-    let deny_dirs = [
-        "logs",
-        "tmp",
-        "cache",
-        "run",
-        "runtime",
+    let allow_top_level = [
+        "artifacts",
+        "contracts",
+        "memory",
+        "retrieval",
+        "router",
+        "skills",
+        "state",
+        "tools",
+        "workspace",
     ];
-    for dir_name in deny_dirs.iter() {
-        let path = runtime_root.join(dir_name);
-        if path.exists() {
-            panic!("replay runtime must not contain {:?} directory", dir_name);
+    for entry in std::fs::read_dir(runtime_root).expect("read runtime root") {
+        let entry = entry.expect("runtime root entry");
+        let path = entry.path();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("<invalid>");
+        if !allow_top_level.contains(&name) {
+            panic!(
+                "replay runtime contains disallowed top-level path: {:?}",
+                path
+            );
         }
     }
 
-    // Recursive walk to check for dangerous files
+    // Recursive walk to deny audit files anywhere.
     let mut dirs_to_visit = vec![runtime_root.to_path_buf()];
     while let Some(current) = dirs_to_visit.pop() {
         for entry in std::fs::read_dir(&current).expect("read dir") {
@@ -470,7 +480,7 @@ fn assert_before(types: &[String], first: &str, second: &str) {
 
 #[test]
 fn workflow_gsama_continuity_survives_context_reset() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_record = std::env::temp_dir().join(format!("pie_b5_context_seed_{}", Uuid::new_v4()));
     let runtime_prep = std::env::temp_dir().join(format!("pie_b5_context_prep_{}", Uuid::new_v4()));
     let runtime_replay = std::env::temp_dir().join(format!("pie_b5_context_reset_{}", Uuid::new_v4()));
@@ -566,10 +576,8 @@ fn workflow_gsama_continuity_survives_context_reset() {
         "working memory snapshot should be removed before replay"
     );
 
-    // Stage 2: Ensure replay runtime isolation before running
+    // Ensure replay runtime isolation before running.
     assert_replay_runtime_isolation(&runtime_replay);
-
-    // Stage 3: GSAMA immutability check (disabled due to production regression)
     let snapshot_path = runtime_replay.join("memory").join("gsama").join("store_snapshot.json");
     let snapshot_before = fs::read(&snapshot_path).expect("read gsama snapshot before replay");
     let hash_before = hash_bytes(&snapshot_before);
@@ -594,13 +602,9 @@ fn workflow_gsama_continuity_survives_context_reset() {
         String::from_utf8_lossy(&out_replay.stderr)
     );
 
-    // Stage 3: Verify GSAMA snapshot unchanged after replay
     let snapshot_after = fs::read(&snapshot_path).expect("read gsama snapshot after replay");
     let hash_after = hash_bytes(&snapshot_after);
-    // TEMPORARILY DISABLED until production fixes GSAMA mutation during replay
-    // assert_eq!(hash_before, hash_after, "GSAMA snapshot must not change during replay");
-    #[allow(dead_code)]
-    let _ = (hash_before, hash_after);
+    assert_eq!(hash_before, hash_after, "GSAMA snapshot must not change during replay");
 
     let replay_events = read_event_payloads(&runtime_replay);
     let replay_types = read_event_types(&runtime_replay);
@@ -610,7 +614,7 @@ fn workflow_gsama_continuity_survives_context_reset() {
     assert!(!replay_types
         .iter()
         .any(|event_type| event_type == "provider_response_artifact_written"));
-    // Stage 4: retrieval_executed must occur before context_selected
+    // retrieval_executed must occur before context_selected.
     assert_before(&replay_types, "retrieval_executed", "context_selected");
     assert!(replay_types
         .iter()
@@ -631,6 +635,20 @@ fn workflow_gsama_continuity_survives_context_reset() {
             .iter()
             .any(|value| value == &continuity_context_ref),
         "replay retrieval should still return GSAMA context pointer after context reset"
+    );
+    let continuity_from_gsama = retrieval_results
+        .get("results")
+        .and_then(|v| v.as_array())
+        .map(|rows| {
+            rows.iter().any(|row| {
+                row.get("source").and_then(|v| v.as_str()) == Some("gsama")
+                    && result_row_ref(row) == Some(continuity_context_ref.as_str())
+            })
+        })
+        .unwrap_or(false);
+    assert!(
+        continuity_from_gsama,
+        "replay continuity context pointer must come from a GSAMA-sourced result row"
     );
 }
 
@@ -723,7 +741,7 @@ fn run_replay_and_collect(
             .any(|value| value == continuity_context_ref),
         "retrieval context_candidates must include GSAMA context pointer"
     );
-    // Stage 1-1: Confirm GSAMA is the active retrieval substrate
+    // Confirm GSAMA is the active retrieval substrate.
     let has_gsama_source = retrieval_results
         .get("results")
         .and_then(|v| v.as_array())
@@ -732,8 +750,11 @@ fn run_replay_and_collect(
                 .any(|row| row.get("source").and_then(|v| v.as_str()) == Some("gsama"))
         })
         .unwrap_or(false);
-    assert!(has_gsama_source, "retrieval results must include at least one GSAMA source result (Stage 4: GSAMA is active retrieval substrate)");
-    // Stage 1-2: Enforce that continuity_context_ref is returned via a GSAMA-sourced result row
+    assert!(
+        has_gsama_source,
+        "retrieval results must include at least one GSAMA source result"
+    );
+    // Enforce that continuity_context_ref is returned via a GSAMA-sourced result row.
     let continuity_from_gsama = retrieval_results
         .get("results")
         .and_then(|v| v.as_array())
@@ -746,9 +767,9 @@ fn run_replay_and_collect(
         .unwrap_or(false);
     assert!(
         continuity_from_gsama,
-        "continuity_context_ref must be returned via a GSAMA-sourced result row (Stage 1: prove GSAMA drove context selection)"
+        "continuity_context_ref must be returned via a GSAMA-sourced result row"
     );
-    // Stage 4: Ensure continuity context pointer came from GSAMA, not episodic/working
+    // Ensure continuity context pointer came from GSAMA, not episodic/working.
     let context_selected_ref = find_event(&replay_events, "context_selected")
         .get("context_ref")
         .and_then(|v| v.as_str())
@@ -798,13 +819,6 @@ fn run_replay_and_collect(
             .any(|value| value == &context_selected_ref),
         "capsule context refs must include selected context artifact ref"
     );
-    // Stage 3 TODO: Capsule schema does not currently include retrieval-specific fields.
-    // Missing fields that would strengthen capsule assertions:
-    // - retrieval_query_artifact_ref (query_ref)
-    // - retrieval_results_artifact_ref (results_ref)
-    // - retrieval_result_set_hash (result_set_hash)
-    // - gsama_store_snapshot_ref or gsama_store_snapshot_hash
-    // Do not modify production code - documentation only.
     ReplayRunEvidence {
         run_id,
         state_hash,
@@ -818,7 +832,7 @@ fn run_replay_and_collect(
 
 #[test]
 fn workflow_record_then_replay_is_deterministic_and_replayable() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_record = std::env::temp_dir().join(format!("pie_b5_record_{}", Uuid::new_v4()));
     let runtime_prep = std::env::temp_dir().join(format!("pie_b5_replay_prep_{}", Uuid::new_v4()));
     let runtime_replay_a = std::env::temp_dir().join(format!("pie_b5_replay_a_{}", Uuid::new_v4()));
@@ -864,7 +878,7 @@ fn workflow_record_then_replay_is_deterministic_and_replayable() {
     assert!(record_types
         .iter()
         .any(|e| e == "retrieval_results_written"));
-    // Stage 4: retrieval_executed must occur before context_selected in record run
+    // retrieval_executed must occur before context_selected in record run.
     assert_before(&record_types, "retrieval_executed", "context_selected");
     assert!(record_types.iter().any(|e| e == "retrieval_executed"));
     assert!(record_types.iter().any(|e| e == "tool_executed"));
@@ -953,7 +967,7 @@ fn workflow_record_then_replay_is_deterministic_and_replayable() {
         "run 2 request hash should differ once run 1 continuity artifacts exist"
     );
 
-    // Stage 2: Ensure replay runtime isolation before running
+    // Ensure replay runtime isolation before running.
     assert_replay_runtime_isolation(&runtime_replay_a);
     assert_replay_runtime_isolation(&runtime_replay_b);
 
@@ -1025,7 +1039,7 @@ fn workflow_record_then_replay_is_deterministic_and_replayable() {
 
 #[test]
 fn workflow_tool_approval_is_fail_closed_then_allows_execution_after_approval() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_seed = std::env::temp_dir().join(format!("pie_b5_seed_{}", Uuid::new_v4()));
     let runtime_fail = std::env::temp_dir().join(format!("pie_b5_approval_{}", Uuid::new_v4()));
     setup_demo_runtime(&runtime_seed, false, false);

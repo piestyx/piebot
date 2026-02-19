@@ -317,7 +317,7 @@ fn assert_audit_ordering(types: &[String]) {
 
 #[test]
 fn stage_gate_7_12_full_stack_deterministic_across_two_runtimes() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_one = std::env::temp_dir().join(format!("pie_stage_gate_one_{}", Uuid::new_v4()));
     let runtime_two = std::env::temp_dir().join(format!("pie_stage_gate_two_{}", Uuid::new_v4()));
 

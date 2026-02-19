@@ -24,7 +24,7 @@
 | Modes | `modes.rs`, `stage17_mode_policy_binding.rs` |
 | Run capsule | `stage10_run_capsule.rs`, `invariants_capsule_sufficient_verification.rs` |
 | Explain | `stage11_explain.rs` |
-| State delta/replay parity | `stage1_tick.rs`, `stage15_verify_replay.rs`, `invariants_cross_runtime_replay_parity.rs`, `verify_cmd.rs` |
+| State delta/replay parity | `stage1_tick.rs`, `stage15_verify_replay.rs`, `invariants_cross_runtime_replay_parity.rs`, `verify_cmd.rs`, `pipeline_b5_workflow_demo.rs` |
 | Memory layers/lattice | `stage2_memory.rs`, `open_memory_mirror.rs`, `stage16_memory_lattice.rs` |
 | Task ingest/queue/replay | `task_ingest.rs`, `task_queue_run.rs`, `task_replay.rs` |
 | Mutation commands | `stage15_approval.rs`, `stage15_learnings.rs`, `stage15_capsule_export.rs` |
@@ -32,6 +32,7 @@
 ## Full-stack gates
 
 - `stage_gate_7_12.rs` (end-to-end deterministic route gate for redaction/context/prompt/contracts/workspace/capsule/explain)
+- `pipeline_b5_workflow_demo.rs` (B5 closeout invariants: replay determinism, provider purity, GSAMA continuity after context reset, replay GSAMA snapshot immutability, replay runtime isolation)
 
 ## Suggested targeted runs
 

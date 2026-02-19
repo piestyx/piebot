@@ -227,7 +227,7 @@ fn tool_registry_ignores_policy_json() {
 
 #[test]
 fn tool_policy_denies_when_tools_disabled() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::remove_var("TOOLS_ENABLE");
     std::env::remove_var("TOOLS_ARM");
     let runtime_root = std::env::temp_dir().join(format!("pie_policy_disabled_{}", Uuid::new_v4()));
@@ -295,7 +295,7 @@ fn replay_equivalence_from_delta_artifact() {
 
 #[test]
 fn noop_tool_executes_and_writes_output() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("TOOLS_ENABLE", "1");
     std::env::remove_var("TOOLS_ARM");
     let runtime_root = std::env::temp_dir().join(format!("pie_tool_noop_{}", Uuid::new_v4()));
@@ -337,7 +337,7 @@ fn noop_tool_executes_and_writes_output() {
 
 #[test]
 fn tool_execution_deterministic_across_runtimes() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("TOOLS_ENABLE", "1");
     std::env::remove_var("TOOLS_ARM");
     let runtime_one = std::env::temp_dir().join(format!("pie_tool_det_one_{}", Uuid::new_v4()));
@@ -415,7 +415,7 @@ fn tool_execution_deterministic_across_runtimes() {
 
 #[test]
 fn tool_execution_denied_without_tools_enable() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::remove_var("TOOLS_ENABLE");
     std::env::remove_var("TOOLS_ARM");
     let runtime_root = std::env::temp_dir().join(format!("pie_tool_denied_{}", Uuid::new_v4()));
@@ -441,7 +441,7 @@ fn tool_execution_denied_without_tools_enable() {
 
 #[test]
 fn tool_policy_needs_approval_until_file_present() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("TOOLS_ENABLE", "1");
     std::env::set_var("TOOLS_ARM", "1");
     let runtime_root = std::env::temp_dir().join(format!("pie_policy_approval_{}", Uuid::new_v4()));
@@ -478,7 +478,7 @@ fn tool_policy_needs_approval_until_file_present() {
 
 #[test]
 fn tool_policy_denies_when_tool_not_allowed() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("TOOLS_ENABLE", "1");
     std::env::remove_var("TOOLS_ARM");
     let runtime_root = std::env::temp_dir().join(format!("pie_policy_deny_{}", Uuid::new_v4()));
@@ -503,7 +503,7 @@ fn tool_policy_denies_when_tool_not_allowed() {
 
 #[test]
 fn tool_policy_needs_arming_when_high_risk_and_missing_arm() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("TOOLS_ENABLE", "1");
     std::env::remove_var("TOOLS_ARM");
     let runtime_root = std::env::temp_dir().join(format!("pie_policy_arm_{}", Uuid::new_v4()));

@@ -723,7 +723,7 @@ fn mode_applies_prompt_template() {
 
 #[test]
 fn mode_tool_tightening_denies_execution() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_root = std::env::temp_dir().join(format!("pie_modes_tool_deny_{}", Uuid::new_v4()));
     write_initial_state(&runtime_root);
     write_router_config(&runtime_root, "mock_tool");

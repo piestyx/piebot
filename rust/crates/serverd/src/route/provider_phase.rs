@@ -1934,6 +1934,7 @@ pub(crate) fn run_route_tick(
                     importance: 1.0,
                 },
             },
+            provider_mode,
         ) {
             fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
             unreachable!();

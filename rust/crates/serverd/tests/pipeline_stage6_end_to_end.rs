@@ -241,7 +241,7 @@ fn context_selection_audited_and_bound_to_provider_request() {
 
 #[test]
 fn end_to_end_tick_with_tools_is_deterministic() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_one = std::env::temp_dir().join(format!("pie_stage6_one_{}", Uuid::new_v4()));
     let runtime_two = std::env::temp_dir().join(format!("pie_stage6_two_{}", Uuid::new_v4()));
 

@@ -170,7 +170,7 @@ fn base_contract(contract_id: &str, allowed_tool_calls: &[&str]) -> serde_json::
 
 #[test]
 fn output_contract_allows_valid_tool_call() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_root = std::env::temp_dir().join(format!("pie_stage9_valid_{}", Uuid::new_v4()));
     write_initial_state(&runtime_root);
     write_skill_manifest(&runtime_root, "demo", Some("demo.contract"));
@@ -200,7 +200,7 @@ fn output_contract_allows_valid_tool_call() {
 
 #[test]
 fn output_contract_rejects_disallowed_tool_call() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_root = std::env::temp_dir().join(format!("pie_stage9_invalid_{}", Uuid::new_v4()));
     write_initial_state(&runtime_root);
     write_skill_manifest(&runtime_root, "demo", Some("demo.contract"));
@@ -230,7 +230,7 @@ fn output_contract_rejects_disallowed_tool_call() {
 }
 #[test]
 fn output_contract_rejects_tool_call_with_input_and_input_ref() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_root =
         std::env::temp_dir().join(format!("pie_stage9_both_inputs_{}", Uuid::new_v4()));
     write_initial_state(&runtime_root);
@@ -286,7 +286,7 @@ fn no_contract_and_no_tool_call_allows_run() {
 
 #[test]
 fn output_contract_deterministic_across_runtimes() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_one = std::env::temp_dir().join(format!("pie_stage9_det_one_{}", Uuid::new_v4()));
     let runtime_two = std::env::temp_dir().join(format!("pie_stage9_det_two_{}", Uuid::new_v4()));
     for runtime_root in [&runtime_one, &runtime_two] {
@@ -322,7 +322,7 @@ fn output_contract_deterministic_across_runtimes() {
 
 #[test]
 fn contract_hash_changes_with_content() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_one = std::env::temp_dir().join(format!("pie_stage9_hash_one_{}", Uuid::new_v4()));
     let runtime_two = std::env::temp_dir().join(format!("pie_stage9_hash_two_{}", Uuid::new_v4()));
     for (runtime_root, allowed) in [
@@ -356,7 +356,7 @@ fn contract_hash_changes_with_content() {
 
 #[test]
 fn missing_contract_fails_closed_when_tool_call_present() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let runtime_root = std::env::temp_dir().join(format!("pie_stage9_missing_{}", Uuid::new_v4()));
     write_initial_state(&runtime_root);
     write_skill_manifest(&runtime_root, "demo", Some("missing.contract"));
