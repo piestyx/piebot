@@ -440,6 +440,21 @@ pub(crate) enum AuditEvent {
         chunk_count: u64,
         file_count: u64,
     },
+    PortPlanRequestWritten {
+        artifact_ref: String,
+    },
+    PortPlanWritten {
+        plan_root_hash: String,
+        artifact_ref: String,
+        repo_identity_root_hash: String,
+        repo_index_snapshot_root_hash: String,
+        node_count: u64,
+        invariant_count: u64,
+        work_unit_count: u64,
+    },
+    PortPlanSummaryWritten {
+        artifact_ref: String,
+    },
 
     // Stage 9 events
     OutputContractLoaded {

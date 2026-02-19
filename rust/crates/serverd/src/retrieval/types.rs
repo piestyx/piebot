@@ -128,6 +128,7 @@ pub(crate) struct GsamaEpisodeWriteInput<'a> {
     pub semantic_vector: Option<Vec<f32>>,
     pub entropy: f32,
     pub feature_profile: GsamaFeatureProfile,
+    pub extra_tags: Vec<(String, String)>,
 }
 
 fn gsama_semantic_dim(config: &RetrievalConfig) -> Result<usize, RetrievalError> {
@@ -148,6 +149,11 @@ fn validate_gsama_write_input(input: &GsamaEpisodeWriteInput<'_>) -> Result<(), 
         .ok_or_else(|| RetrievalError::new(GSAMA_WRITE_INPUT_INVALID))?;
     let _episode_ref = normalize_ref(episode_ns, episode_id)
         .ok_or_else(|| RetrievalError::new(GSAMA_WRITE_INPUT_INVALID))?;
+    for (key, value) in &input.extra_tags {
+        if !is_safe_token(key) || value.trim().is_empty() || value.contains('\n') {
+            return Err(RetrievalError::new(GSAMA_WRITE_INPUT_INVALID));
+        }
+    }
 
     Ok(())
 }
@@ -197,11 +203,14 @@ pub(crate) fn append_episode_to_gsama_store(
         return Err(RetrievalError::new("gsama_store_dim_mismatch"));
     }
 
-    let tags = vec![
+    let mut tags = vec![
         ("context_ref".to_string(), input.context_ref.to_string()),
         ("episode_ref".to_string(), input.episode_ref.to_string()),
         ("intent".to_string(), input.intent_kind.to_string()),
     ];
+    tags.extend(input.extra_tags.iter().cloned());
+    tags.sort();
+    tags.dedup();
     store
         .write(vector, tags, input.entropy, input.tick_index)
         .map_err(|e| RetrievalError::with_detail("gsama_store_write_failed", e.to_string()))?;

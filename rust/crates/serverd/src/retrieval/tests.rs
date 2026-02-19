@@ -316,6 +316,7 @@ mod tests {
                 self_state_shift_cosine: 0.0,
                 importance: 1.0,
             },
+            extra_tags: Vec::new(),
         };
         let err = append_episode_to_gsama_store(
             runtime_root,

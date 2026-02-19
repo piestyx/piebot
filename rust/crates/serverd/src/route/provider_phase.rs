@@ -27,7 +27,7 @@ use crate::provider::{
 use crate::redaction::{
     minimize_provider_input_with_compiled, CompiledRegexRedaction, RedactionConfig,
 };
-use crate::ref_utils::split_ref_parts_with_default;
+use crate::ref_utils::{normalize_ref, split_ref_parts_with_default};
 use crate::retrieval::{
     append_episode_to_gsama_store, build_retrieval_query, execute_retrieval, preflight_gsama_store,
     write_context_pointer_artifact, GsamaEpisodeWriteInput, GsamaFeatureProfile,
@@ -36,7 +36,11 @@ use crate::retrieval::{
 use crate::router::{select_provider, RouteInput, RouterConfig};
 use crate::capsule::run_capsule::{RunCapsuleProvider, RunCapsuleToolIo};
 use crate::capsule::run_capsule_collector::RunCapsuleCollector;
-use crate::skills::{enforce_tool_call, SkillContext};
+use crate::skills::{
+    enforce_tool_call,
+    port_repo::{generate_port_plan_from_provider_output, is_port_repo_ingest},
+    SkillContext,
+};
 use crate::task::task_store::Intent;
 use crate::tick_core::{
     hash_canonical_value, hash_observation, intent_kind, observe, task_request_hash, tick_core,
@@ -504,15 +508,18 @@ pub(crate) fn run_route_tick(
             request_hash: request_hash.clone(),
         },
     )?;
-    if let Err(e) = maybe_build_repo_index(
+    let repo_index_evidence = match maybe_build_repo_index(
         runtime_root,
         &workspace_ctx.run_workspace_root,
         provider_mode,
         audit,
     ) {
-        fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
-        unreachable!();
-    }
+        Ok(value) => value,
+        Err(e) => {
+            fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
+            unreachable!();
+        }
+    };
     let seed_context = select_context(skill_ctx);
     let prompt_template_refs =
         effective_prompt_template_refs(skill_ctx, prompt.template_override_ref.as_deref());
@@ -1680,6 +1687,101 @@ pub(crate) fn run_route_tick(
             )?;
             unreachable!();
         }
+        if is_port_repo_ingest(skill_ctx) {
+            let plan_result = match generate_port_plan_from_provider_output(
+                runtime_root,
+                repo_index_evidence.as_ref(),
+                &output_value,
+                provider_mode,
+                &retrieval.config,
+                audit,
+            ) {
+                Ok(value) => value,
+                Err(e) => {
+                    fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
+                    unreachable!();
+                }
+            };
+            let _ = (
+                &plan_result.repo_identity_root_hash,
+                &plan_result.repo_index_snapshot_root_hash,
+                &plan_result.plan_root_hash,
+            );
+            let repo_identity_ref = match normalize_ref("repo_identity", &plan_result.repo_identity_ref)
+            {
+                Some(value) => value,
+                None => {
+                    fail_run(
+                        audit,
+                        audit_path,
+                        runtime_root,
+                        last_state_hash,
+                        "port_plan_write_failed",
+                    )?;
+                    unreachable!();
+                }
+            };
+            capsule.add_context_ref(repo_identity_ref);
+            let repo_snapshot_ref =
+                match normalize_ref("repo_index_snapshot", &plan_result.repo_index_snapshot_ref) {
+                    Some(value) => value,
+                    None => {
+                        fail_run(
+                            audit,
+                            audit_path,
+                            runtime_root,
+                            last_state_hash,
+                            "port_plan_write_failed",
+                        )?;
+                        unreachable!();
+                    }
+                };
+            capsule.add_context_ref(repo_snapshot_ref);
+            let plan_ref = match normalize_ref("port_plans", &plan_result.plan_ref) {
+                Some(value) => value,
+                None => {
+                    fail_run(
+                        audit,
+                        audit_path,
+                        runtime_root,
+                        last_state_hash,
+                        "port_plan_write_failed",
+                    )?;
+                    unreachable!();
+                }
+            };
+            capsule.add_context_ref(plan_ref);
+            let request_ref = match normalize_ref("port_plan_requests", &plan_result.request_ref) {
+                Some(value) => value,
+                None => {
+                    fail_run(
+                        audit,
+                        audit_path,
+                        runtime_root,
+                        last_state_hash,
+                        "port_plan_write_failed",
+                    )?;
+                    unreachable!();
+                }
+            };
+            capsule.add_context_ref(request_ref);
+            if let Some(summary_ref) = plan_result.summary_ref.as_ref() {
+                let summary_ref = match normalize_ref("port_plan_summaries", summary_ref) {
+                    Some(value) => value,
+                    None => {
+                        fail_run(
+                            audit,
+                            audit_path,
+                            runtime_root,
+                            last_state_hash,
+                            "port_plan_write_failed",
+                        )?;
+                        unreachable!();
+                    }
+                };
+                capsule.add_context_ref(summary_ref);
+            }
+        }
         let tool_call = if tool_call_present {
             match parse_tool_call_from_provider_output(&output_value) {
                 Ok(call) => call,
@@ -1943,6 +2045,7 @@ pub(crate) fn run_route_tick(
                     self_state_shift_cosine: 0.0,
                     importance: 1.0,
                 },
+                extra_tags: Vec::new(),
             },
             provider_mode,
         ) {

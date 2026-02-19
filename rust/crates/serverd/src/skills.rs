@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+pub(crate) mod port_repo;
 
 pub const SKILL_MANIFEST_SCHEMA: &str = "serverd.skill_manifest.v1";
 

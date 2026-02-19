@@ -43,6 +43,10 @@ fn mock_tool_emit_both_inputs() -> bool {
         .unwrap_or(false)
 }
 
+fn mock_port_plan_invalid_mode() -> Option<String> {
+    std::env::var("MOCK_PORT_PLAN_INVALID_MODE").ok()
+}
+
 fn tool_input_ref_from_value(value: &serde_json::Value) -> Result<String, ProviderError> {
     let bytes = canonical_json_bytes(value)
         .map_err(|_| ProviderError::new("provider_tool_input_hash_failed"))?;
@@ -237,6 +241,89 @@ impl ModelProvider for MockProvider {
             "schema": PROVIDER_OUTPUT_SCHEMA,
             "output": format!("mock:{}", req.request_hash),
         });
+        Ok(ProviderResponse::with_output(
+            req.request_hash.clone(),
+            output,
+            Some(self.id.as_str().to_string()),
+        ))
+    }
+}
+
+#[derive(Debug)]
+pub struct MockPortPlanProvider {
+    id: ProviderId,
+}
+
+impl MockPortPlanProvider {
+    pub fn new() -> Result<Self, ProviderError> {
+        Ok(Self {
+            id: ProviderId::parse("mock_port_plan")?,
+        })
+    }
+}
+
+impl ModelProvider for MockPortPlanProvider {
+    fn id(&self) -> &str {
+        self.id.as_str()
+    }
+
+    fn is_available(&self) -> bool {
+        true
+    }
+
+    fn infer(&self, req: &ProviderRequest) -> Result<ProviderResponse, ProviderError> {
+        panic_if_provider_called();
+        let output = match mock_port_plan_invalid_mode().as_deref() {
+            Some("unknown_field") => serde_json::json!({
+                "schema": "serverd.port_plan_provider_output.v1",
+                "candidate_nodes": [],
+                "candidate_invariants": [],
+                "candidate_work_units": [],
+                "unexpected": true
+            }),
+            Some("wrong_schema") => serde_json::json!({
+                "schema": "serverd.port_plan_provider_output.v0",
+                "candidate_nodes": [],
+                "candidate_invariants": [],
+                "candidate_work_units": []
+            }),
+            Some("non_object") => serde_json::json!("not_an_object"),
+            _ => serde_json::json!({
+                "schema": "serverd.port_plan_provider_output.v1",
+                "candidate_nodes": [
+                    {
+                        "kind": "tests",
+                        "target_paths": ["tests/port_repo_plan.rs"],
+                        "dependencies": [{"kind": "module_map", "target_path": "src/lib.rs"}],
+                        "invariant_statements": [" behavior must remain equivalent "]
+                    },
+                    {
+                        "kind": "module_map",
+                        "target_paths": ["src\\lib.rs"],
+                        "dependencies": [],
+                        "invariant_statements": []
+                    }
+                ],
+                "candidate_invariants": [
+                    {
+                        "statement": "No workspace writes during ingest planning",
+                        "scope": "repo"
+                    }
+                ],
+                "candidate_work_units": [
+                    {
+                        "node": {"kind": "module_map", "target_path": "src/lib.rs"},
+                        "target_path": "src\\lib.rs",
+                        "acceptance_criteria": ["Capture module boundaries"]
+                    },
+                    {
+                        "node": {"kind": "tests", "target_path": "tests/port_repo_plan.rs"},
+                        "target_path": "tests/port_repo_plan.rs",
+                        "acceptance_criteria": ["Assert replay-stable plan ids"]
+                    }
+                ]
+            }),
+        };
         Ok(ProviderResponse::with_output(
             req.request_hash.clone(),
             output,

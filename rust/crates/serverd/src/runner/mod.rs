@@ -19,7 +19,10 @@ use crate::modes::{
 use crate::output_contract::load_output_contracts;
 use crate::policy::context_policy::load_context_policy;
 use crate::policy::workspace::load_workspace_policy;
-use crate::provider::{MockProvider, MockToolProvider, ModelProvider, NullProvider, ProviderError};
+use crate::provider::{
+    MockPortPlanProvider, MockProvider, MockToolProvider, ModelProvider, NullProvider,
+    ProviderError,
+};
 use crate::redaction::{compile_regex_redactions, load_redaction_config};
 use crate::retrieval::load_retrieval_config;
 use crate::route::{
@@ -140,6 +143,7 @@ fn build_providers() -> Result<Vec<Box<dyn ModelProvider>>, ProviderError> {
     Ok(vec![
         Box::new(MockProvider::new()?),
         Box::new(MockToolProvider::new()?),
+        Box::new(MockPortPlanProvider::new()?),
         Box::new(NullProvider::new()?),
     ])
 }
