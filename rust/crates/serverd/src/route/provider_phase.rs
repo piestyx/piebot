@@ -1,5 +1,8 @@
-use crate::runtime::artifacts::{artifact_filename, write_json_artifact_atomic};
+use crate::runtime::artifacts::{
+    artifact_filename, write_json_artifact_at_ref_atomic, write_json_artifact_atomic,
+};
 use crate::audit::{append_event, fail_run, AuditEvent};
+use crate::command::ProviderMode;
 use crate::context::select_context;
 use crate::policy::context_policy::{enforce_context_policy, ContextPolicy};
 use crate::lenses::{
@@ -16,8 +19,9 @@ use crate::prompt::{
     PROMPT_TEMPLATE_SCHEMA,
 };
 use crate::provider::{
-    ModelProvider, ProviderError, ProviderRequest, PROVIDER_CONSTRAINTS_SCHEMA,
-    PROVIDER_INPUT_SCHEMA, PROVIDER_REQUEST_SCHEMA, PROVIDER_RESPONSE_SCHEMA,
+    ModelProvider, ProviderError, ProviderRequest, ProviderResponse, ProviderResponseArtifact,
+    PROVIDER_CONSTRAINTS_SCHEMA, PROVIDER_INPUT_SCHEMA, PROVIDER_REQUEST_SCHEMA,
+    PROVIDER_RESPONSE_ARTIFACT_SCHEMA, PROVIDER_RESPONSE_SCHEMA,
 };
 use crate::redaction::{
     minimize_provider_input_with_compiled, CompiledRegexRedaction, RedactionConfig,
@@ -44,7 +48,7 @@ use pie_audit_log::AuditAppender;
 use pie_common::canonical_json_bytes;
 use pie_kernel_state::{load_or_init, state_hash};
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub(crate) struct RouteTickOutcome {
     pub(crate) state_hash: String,
@@ -106,7 +110,7 @@ fn split_artifact_ref(
 }
 
 fn read_artifact_json(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     namespace: &str,
     artifact_ref: &str,
 ) -> Result<serde_json::Value, ProviderError> {
@@ -128,7 +132,7 @@ fn namespace_allowed(policy: &ContextPolicy, namespace: &str) -> bool {
     policy.allowed_namespaces.iter().any(|n| n == namespace)
 }
 
-fn is_usable_context_candidate(runtime_root: &PathBuf, value: &str) -> bool {
+fn is_usable_context_candidate(runtime_root: &Path, value: &str) -> bool {
     let (namespace, artifact_ref) = match split_artifact_ref(value, "contexts") {
         Ok(parts) => parts,
         Err(_) => return false,
@@ -142,7 +146,7 @@ fn is_usable_context_candidate(runtime_root: &PathBuf, value: &str) -> bool {
 }
 
 fn resolve_prompt_template_text(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     template_ref: &str,
     policy: &ContextPolicy,
 ) -> Result<String, ProviderError> {
@@ -160,7 +164,7 @@ fn resolve_prompt_template_text(
 }
 
 fn resolve_context_body(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     context_ref: &str,
     policy: &ContextPolicy,
 ) -> Result<String, ProviderError> {
@@ -190,17 +194,196 @@ fn find_provider<'a>(
         .map(|p| p.as_ref())
 }
 
+struct ProviderExecutionResult {
+    response: ProviderResponse,
+    provider_response_artifact_ref: String,
+    loaded_from_artifact: bool,
+}
+
+fn provider_response_artifact_path(runtime_root: &Path, request_hash: &str) -> PathBuf {
+    runtime_root
+        .join("artifacts")
+        .join("provider_responses")
+        .join(artifact_filename(request_hash))
+}
+
+fn provider_response_value_with_output(
+    response: &ProviderResponse,
+) -> Result<serde_json::Value, ProviderError> {
+    let output = response
+        .output
+        .clone()
+        .ok_or_else(|| ProviderError::new("provider_output_missing"))?;
+    let mut map = serde_json::Map::new();
+    map.insert(
+        "schema".to_string(),
+        serde_json::Value::String(response.schema.clone()),
+    );
+    map.insert(
+        "request_hash".to_string(),
+        serde_json::Value::String(response.request_hash.clone()),
+    );
+    if let Some(token_counts) = response.token_counts.as_ref() {
+        let value = serde_json::to_value(token_counts)
+            .map_err(|_| ProviderError::new("provider_response_invalid"))?;
+        map.insert("token_counts".to_string(), value);
+    }
+    if let Some(model) = response.model.as_ref() {
+        map.insert("model".to_string(), serde_json::Value::String(model.clone()));
+    }
+    map.insert("output".to_string(), output);
+    Ok(serde_json::Value::Object(map))
+}
+
+fn provider_response_from_value(value: &serde_json::Value) -> Result<ProviderResponse, ProviderError> {
+    let mut response: ProviderResponse = serde_json::from_value(value.clone())
+        .map_err(|_| ProviderError::new("provider_response_invalid"))?;
+    let output = value
+        .get("output")
+        .cloned()
+        .ok_or_else(|| ProviderError::new("provider_output_missing"))?;
+    response.output_ref = None;
+    response.output = Some(output);
+    Ok(response)
+}
+
+fn write_provider_response_artifact(
+    runtime_root: &Path,
+    provider_id: &str,
+    request_hash: &str,
+    response: &ProviderResponse,
+    run_id: &str,
+    tick_index: u64,
+) -> Result<String, ProviderError> {
+    let response_value = provider_response_value_with_output(response)?;
+    let response_hash =
+        hash_canonical_value(&response_value).map_err(|_| ProviderError::new("provider_response_invalid"))?;
+    let artifact = ProviderResponseArtifact {
+        schema: PROVIDER_RESPONSE_ARTIFACT_SCHEMA.to_string(),
+        request_hash: request_hash.to_string(),
+        provider_id: provider_id.to_string(),
+        response: response_value,
+        response_hash,
+        created_from_run_id: run_id.to_string(),
+        created_from_tick_index: tick_index,
+    };
+    let artifact_value =
+        serde_json::to_value(&artifact).map_err(|_| ProviderError::new("provider_response_invalid"))?;
+    write_json_artifact_at_ref_atomic(
+        runtime_root,
+        "provider_responses",
+        request_hash,
+        &artifact_value,
+    )
+    .map_err(ProviderError::from)
+}
+
+fn load_provider_response_artifact(
+    runtime_root: &Path,
+    request_hash: &str,
+) -> Result<ProviderResponse, ProviderError> {
+    let path = provider_response_artifact_path(runtime_root, request_hash);
+    let bytes = std::fs::read(path).map_err(|_| ProviderError::new("provider_replay_missing_artifact"))?;
+    let artifact: ProviderResponseArtifact =
+        serde_json::from_slice(&bytes).map_err(|_| ProviderError::new("provider_response_invalid"))?;
+    if artifact.schema != PROVIDER_RESPONSE_ARTIFACT_SCHEMA {
+        return Err(ProviderError::new("provider_response_invalid"));
+    }
+    if artifact.request_hash != request_hash {
+        return Err(ProviderError::new("provider_response_invalid"));
+    }
+    let computed_hash = hash_canonical_value(&artifact.response)
+        .map_err(|_| ProviderError::new("provider_response_invalid"))?;
+    if computed_hash != artifact.response_hash {
+        return Err(ProviderError::new("provider_response_invalid"));
+    }
+    let response = provider_response_from_value(&artifact.response)?;
+    if response.schema != PROVIDER_RESPONSE_SCHEMA || response.request_hash != request_hash {
+        return Err(ProviderError::new("provider_response_invalid"));
+    }
+    Ok(response)
+}
+
+fn execute_provider_with_mode(
+    runtime_root: &Path,
+    provider_mode: ProviderMode,
+    provider: &dyn ModelProvider,
+    provider_id: &str,
+    request: &ProviderRequest,
+    run_id: &str,
+    tick_index: u64,
+) -> Result<ProviderExecutionResult, ProviderError> {
+    let artifact_path = provider_response_artifact_path(runtime_root, &request.request_hash);
+    match provider_mode {
+        ProviderMode::Replay => {
+            let response = load_provider_response_artifact(runtime_root, &request.request_hash)?;
+            Ok(ProviderExecutionResult {
+                response,
+                provider_response_artifact_ref: request.request_hash.clone(),
+                loaded_from_artifact: true,
+            })
+        }
+        ProviderMode::Record => {
+            if artifact_path.is_file() {
+                return Err(ProviderError::new("provider_record_conflict"));
+            }
+            let response = provider.infer(request)?;
+            if response.schema != PROVIDER_RESPONSE_SCHEMA
+                || response.request_hash != request.request_hash
+            {
+                return Err(ProviderError::new("provider_response_invalid"));
+            }
+            let provider_response_artifact_ref = write_provider_response_artifact(
+                runtime_root,
+                provider_id,
+                &request.request_hash,
+                &response,
+                run_id,
+                tick_index,
+            )?;
+            Ok(ProviderExecutionResult {
+                response,
+                provider_response_artifact_ref,
+                loaded_from_artifact: false,
+            })
+        }
+        ProviderMode::Live => {
+            let response = provider.infer(request)?;
+            if response.schema != PROVIDER_RESPONSE_SCHEMA
+                || response.request_hash != request.request_hash
+            {
+                return Err(ProviderError::new("provider_response_invalid"));
+            }
+            let provider_response_artifact_ref = write_provider_response_artifact(
+                runtime_root,
+                provider_id,
+                &request.request_hash,
+                &response,
+                run_id,
+                tick_index,
+            )?;
+            Ok(ProviderExecutionResult {
+                response,
+                provider_response_artifact_ref,
+                loaded_from_artifact: false,
+            })
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_route_tick(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     audit: &mut AuditAppender,
-    audit_path: &PathBuf,
-    state_path: &PathBuf,
+    audit_path: &Path,
+    state_path: &Path,
     run_id: &str,
     tick_index: u64,
     task_id: Option<&str>,
     pending_count: u64,
     intent: Intent,
     router_config: &RouterConfig,
+    provider_mode: ProviderMode,
     skill_ctx: Option<&SkillContext>,
     providers: &[Box<dyn ModelProvider>],
     redaction: &RedactionContext,
@@ -1224,10 +1407,39 @@ pub(crate) fn run_route_tick(
                 artifact_ref: request_ref.clone(),
             },
         )?;
-
-        let mut response = match provider.expect("provider available").infer(&request) {
-            Ok(response) => response,
+        let provider_execution = match execute_provider_with_mode(
+            runtime_root,
+            provider_mode,
+            provider.expect("provider available"),
+            &provider_id,
+            &request,
+            run_id,
+            tick_index,
+        ) {
+            Ok(value) => value,
             Err(e) => {
+                if e.reason() == "provider_replay_missing_artifact" {
+                    append_event(
+                        audit,
+                        AuditEvent::ProviderReplayMissingArtifact {
+                            request_hash: request_hash.clone(),
+                            expected_artifact_path: provider_response_artifact_path(
+                                runtime_root,
+                                &request_hash,
+                            )
+                            .to_string_lossy()
+                            .to_string(),
+                        },
+                    )?;
+                } else if e.reason() == "provider_record_conflict" {
+                    append_event(
+                        audit,
+                        AuditEvent::ProviderRecordConflict {
+                            request_hash: request_hash.clone(),
+                            artifact_ref: request_hash.clone(),
+                        },
+                    )?;
+                }
                 append_event(
                     audit,
                     AuditEvent::ProviderFailed {
@@ -1240,25 +1452,27 @@ pub(crate) fn run_route_tick(
                 unreachable!();
             }
         };
-
-        if response.schema != PROVIDER_RESPONSE_SCHEMA || response.request_hash != request_hash {
+        let provider_response_artifact_ref = provider_execution.provider_response_artifact_ref.clone();
+        if provider_execution.loaded_from_artifact {
             append_event(
                 audit,
-                AuditEvent::ProviderFailed {
+                AuditEvent::ProviderResponseArtifactLoaded {
                     provider_id: provider_id.clone(),
                     request_hash: request_hash.clone(),
-                    error: "provider_response_invalid".to_string(),
+                    artifact_ref: provider_response_artifact_ref.clone(),
                 },
             )?;
-            fail_run(
+        } else {
+            append_event(
                 audit,
-                audit_path,
-                runtime_root,
-                last_state_hash,
-                "provider_response_invalid",
+                AuditEvent::ProviderResponseArtifactWritten {
+                    provider_id: provider_id.clone(),
+                    request_hash: request_hash.clone(),
+                    artifact_ref: provider_response_artifact_ref.clone(),
+                },
             )?;
-            unreachable!();
         }
+        let mut response = provider_execution.response;
 
         let output_value = match response.output.take() {
             Some(value) => value,
@@ -1345,6 +1559,8 @@ pub(crate) fn run_route_tick(
             request_ref: request_ref.clone(),
             response_ref: response_ref.clone(),
             output_ref: output_ref.clone(),
+            provider_request_hash: Some(request_hash.clone()),
+            provider_response_artifact_ref: Some(provider_response_artifact_ref),
         });
         let output_value = match read_output_from_response(runtime_root, &response_ref) {
             Ok(value) => value,

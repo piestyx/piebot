@@ -242,7 +242,10 @@ fn workspace_repo_root_disallowed_fails_closed() {
         Some("workspace_repo_root_disallowed")
     );
     let events = read_event_types(&runtime_root);
-    assert_eq!(events, vec!["run_started", "run_completed"]);
+    assert_eq!(
+        events,
+        vec!["run_started", "provider_mode_selected", "run_completed"]
+    );
 }
 
 #[test]

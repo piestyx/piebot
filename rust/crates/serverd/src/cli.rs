@@ -1,7 +1,7 @@
 use crate::command::{
     ApproveArgs, Args, CapsuleExportArgs, IngestArgs, InputSource, LearnArgs, Mode,
     OperatorApproveArgs, OperatorCapsuleExportArgs, OperatorLearningsAppendArgs,
-    OperatorRefuseArgs, OperatorReplayVerifyArgs, ReplayArgs, VerifyArgs,
+    OperatorRefuseArgs, OperatorReplayVerifyArgs, ProviderMode, ReplayArgs, VerifyArgs,
 };
 use crate::mutations::{run_approve, run_capsule_export, run_learn};
 use crate::operator_actions::{
@@ -78,6 +78,7 @@ where
     let mut mode = Mode::Null;
     let mut skill_id: Option<String> = None;
     let mut mode_profile: Option<String> = None;
+    let mut provider_mode: Option<ProviderMode> = None;
     while let Some(a) = it.next() {
         match a.as_str() {
             "--runtime" => {
@@ -117,6 +118,16 @@ where
                 let v = it.next().ok_or("missing value for --mode-profile")?;
                 mode_profile = Some(v);
             }
+            "--provider" => {
+                if provider_mode.is_some() {
+                    return Err("multiple values provided for --provider".to_string());
+                }
+                let v = it.next().ok_or("missing value for --provider")?;
+                provider_mode = Some(
+                    ProviderMode::parse(&v)
+                        .ok_or_else(|| format!("unknown provider mode: {}", v))?,
+                );
+            }
             _ => {}
         }
     }
@@ -136,6 +147,7 @@ where
         mode,
         skill_id,
         mode_profile,
+        provider_mode: provider_mode.unwrap_or(ProviderMode::Live),
     })
 }
 

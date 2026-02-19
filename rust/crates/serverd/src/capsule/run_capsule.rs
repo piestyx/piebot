@@ -74,6 +74,8 @@ pub struct RunCapsuleRun {
     pub run_id: String,
     pub mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ticks: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_ref: Option<String>,
@@ -125,6 +127,10 @@ pub struct RunCapsuleProvider {
     pub request_ref: String,
     pub response_ref: String,
     pub output_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_request_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_response_artifact_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

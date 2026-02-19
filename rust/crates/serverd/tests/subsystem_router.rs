@@ -4,8 +4,15 @@ use std::process::{Command, Output, Stdio};
 use uuid::Uuid;
 mod common;
 
-fn run_serverd(runtime_root: &Path, ticks: u64, delta: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_serverd"))
+fn run_serverd_with(
+    runtime_root: &Path,
+    ticks: u64,
+    delta: &str,
+    provider_mode: Option<&str>,
+    envs: &[(&str, &str)],
+) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_serverd"));
+    command
         .arg("--mode")
         .arg("route")
         .arg("--ticks")
@@ -15,9 +22,18 @@ fn run_serverd(runtime_root: &Path, ticks: u64, delta: &str) -> Output {
         .arg("--runtime")
         .arg(runtime_root.to_string_lossy().to_string())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("failed to run serverd")
+        .stderr(Stdio::piped());
+    if let Some(provider_mode) = provider_mode {
+        command.arg("--provider").arg(provider_mode);
+    }
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    command.output().expect("failed to run serverd")
+}
+
+fn run_serverd(runtime_root: &Path, ticks: u64, delta: &str) -> Output {
+    run_serverd_with(runtime_root, ticks, delta, None, &[])
 }
 
 fn write_initial_state(runtime_root: &Path) {
@@ -46,6 +62,15 @@ fn read_event_types(runtime_root: &Path) -> Vec<String> {
                 .to_string()
         })
         .collect()
+}
+
+fn parse_state_hash(output: &Output) -> String {
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("run output json");
+    value
+        .get("state_hash")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 fn positions(events: &[String], kind: &str) -> Vec<usize> {
@@ -170,9 +195,141 @@ fn provider_failure_fails_closed() {
         events,
         vec![
             "run_started",
+            "provider_mode_selected",
             "workspace_policy_loaded",
             "provider_failed",
             "run_completed"
         ]
+    );
+}
+
+#[test]
+fn provider_replay_refuses_without_artifact() {
+    let runtime_root =
+        std::env::temp_dir().join(format!("pie_stage3_replay_missing_{}", Uuid::new_v4()));
+    let out = run_serverd_with(&runtime_root, 1, "tick:0", Some("replay"), &[]);
+    assert!(!out.status.success(), "run should fail");
+
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("run output not json");
+    assert_eq!(
+        v.get("error").and_then(|v| v.as_str()),
+        Some("provider_replay_missing_artifact")
+    );
+    let events = read_event_types(&runtime_root);
+    assert!(events.iter().any(|e| e == "provider_replay_missing_artifact"));
+    assert!(!events.iter().any(|e| e == "provider_response_written"));
+}
+
+#[test]
+fn provider_live_writes_artifact_then_replay_loads_without_provider_call() {
+    let runtime_live = std::env::temp_dir().join(format!("pie_stage3_live_only_{}", Uuid::new_v4()));
+    let out_live = run_serverd_with(&runtime_live, 1, "tick:0", Some("live"), &[]);
+    assert!(
+        out_live.status.success(),
+        "live run failed: {}",
+        String::from_utf8_lossy(&out_live.stderr)
+    );
+    let live_state_hash = parse_state_hash(&out_live);
+    assert!(!live_state_hash.is_empty());
+    let events_live = read_event_payloads(&runtime_live);
+    let events_live_types = read_event_types(&runtime_live);
+    let request_hash = events_live
+        .iter()
+        .find_map(|event| {
+            if event.get("event_type").and_then(|v| v.as_str()) == Some("provider_request_written")
+            {
+                event
+                    .get("request_hash")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string())
+            } else {
+                None
+            }
+        })
+        .expect("request_hash from live run");
+    let artifact = artifact_path(&runtime_live, "provider_responses", &request_hash);
+    assert!(artifact.is_file(), "provider response artifact missing");
+    let runtime_probe =
+        std::env::temp_dir().join(format!("pie_stage3_replay_probe_{}", Uuid::new_v4()));
+    let out_missing = run_serverd_with(&runtime_probe, 1, "tick:0", Some("replay"), &[]);
+    assert!(!out_missing.status.success(), "replay should fail without artifact");
+    let replay_events = read_event_payloads(&runtime_probe);
+    let replay_request_hash = replay_events
+        .iter()
+        .find_map(|event| {
+            if event.get("event_type").and_then(|v| v.as_str())
+                == Some("provider_replay_missing_artifact")
+            {
+                event
+                    .get("request_hash")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string())
+            } else {
+                None
+            }
+        })
+        .expect("request_hash from replay missing event");
+
+    let response_value = serde_json::json!({
+        "schema": "serverd.provider_response.v1",
+        "request_hash": replay_request_hash,
+        "model": "mock",
+        "output": {
+            "schema": "serverd.provider_output.v1",
+            "output": "null"
+        }
+    });
+    let response_hash = {
+        let bytes = pie_common::canonical_json_bytes(&response_value).expect("canonical response");
+        pie_common::sha256_bytes(&bytes)
+    };
+    let artifact_value = serde_json::json!({
+        "schema": "serverd.provider_response_artifact.v1",
+        "request_hash": replay_request_hash,
+        "provider_id": "mock",
+        "response": response_value,
+        "response_hash": response_hash,
+        "created_from_run_id": "sha256:test",
+        "created_from_tick_index": 0
+    });
+    let runtime_replay =
+        std::env::temp_dir().join(format!("pie_stage3_replay_only_{}", Uuid::new_v4()));
+    let replay_artifact = artifact_path(&runtime_replay, "provider_responses", &replay_request_hash);
+    std::fs::create_dir_all(
+        replay_artifact
+            .parent()
+            .expect("replay provider_responses parent"),
+    )
+    .expect("create replay provider_responses dir");
+    std::fs::write(
+        replay_artifact,
+        serde_json::to_vec(&artifact_value).expect("serialize replay artifact"),
+    )
+    .expect("write replay provider response artifact");
+
+    let out_replay = run_serverd_with(
+        &runtime_replay,
+        1,
+        "tick:0",
+        Some("replay"),
+        &[("MOCK_PROVIDER_PANIC_IF_CALLED", "1")],
+    );
+    assert!(
+        out_replay.status.success(),
+        "replay run failed: {}",
+        String::from_utf8_lossy(&out_replay.stderr)
+    );
+    let replay_state_hash = parse_state_hash(&out_replay);
+    assert_eq!(live_state_hash, replay_state_hash);
+    assert!(
+        events_live_types
+            .iter()
+            .any(|e| e == "provider_response_artifact_written")
+    );
+    let replay_events_types = read_event_types(&runtime_replay);
+    assert!(
+        replay_events_types
+            .iter()
+            .any(|e| e == "provider_response_artifact_loaded")
     );
 }

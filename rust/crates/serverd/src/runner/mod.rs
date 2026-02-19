@@ -46,7 +46,7 @@ use pie_common::{canonical_json_bytes, sha256_bytes};
 use pie_kernel_state::{load_or_init, save, state_hash, StateDelta};
 use std::collections::BTreeSet;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_TASK_BYTES: usize = 1024 * 1024;
@@ -81,7 +81,7 @@ fn read_input_bytes(source: &InputSource) -> Result<Vec<u8>, std::io::Error> {
     }
 }
 
-fn final_state_hash_for_run(audit_path: &PathBuf, run_id: &str) -> Result<String, &'static str> {
+fn final_state_hash_for_run(audit_path: &Path, run_id: &str) -> Result<String, &'static str> {
     let events = read_audit_events(audit_path).map_err(|_| "verify_run_invalid")?;
     let run_events = filter_events_for_run(&events, run_id).map_err(|_| "verify_run_invalid")?;
     for event in run_events.iter().rev() {
@@ -104,7 +104,7 @@ fn now_unix_seconds() -> u64 {
 }
 
 fn persist_run_output_task_request(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     task_request: &Option<TaskRequest>,
 ) -> Result<(), &'static str> {
     let task = match task_request {
@@ -150,8 +150,8 @@ fn compute_run_id(input: &serde_json::Value) -> Result<String, Box<dyn std::erro
 
 fn fail_mode_run(
     audit: &mut AuditAppender,
-    audit_path: &PathBuf,
-    runtime_root: &PathBuf,
+    audit_path: &Path,
+    runtime_root: &Path,
     last_state_hash: &str,
     reason: &'static str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -165,9 +165,9 @@ fn fail_mode_run(
 }
 
 fn maybe_build_memory_lattice(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     audit: &mut AuditAppender,
-    audit_path: &PathBuf,
+    audit_path: &Path,
     tick_index: u64,
     config: &MemoryLatticeConfig,
     last_state_hash: &str,
@@ -217,7 +217,7 @@ fn maybe_build_memory_lattice(
 }
 
 fn execute_one_tick(
-    runtime_root: &PathBuf,
+    runtime_root: &Path,
     audit: &mut AuditAppender,
     tick_index: u64,
     intent: Intent,
@@ -366,6 +366,7 @@ pub(crate) fn run_null(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         RunCapsuleRun {
             run_id: run_id.clone(),
             mode: "null".to_string(),
+            provider_mode: None,
             ticks: Some(args.ticks),
             delta_ref,
         },
@@ -697,6 +698,7 @@ pub(crate) fn run_route(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         };
     let run_id_value = serde_json::json!({
         "mode": "route",
+        "provider_mode": args.provider_mode.as_str(),
         "ticks": args.ticks,
         "delta_ref": delta_ref.clone(),
         "skill_id": args.skill_id.clone(),
@@ -747,6 +749,28 @@ pub(crate) fn run_route(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             reason,
         );
     }
+    let provider_mode_config = serde_json::json!({
+        "provider_mode": args.provider_mode.as_str()
+    });
+    let provider_mode_config_hash = match hash_canonical_value(&provider_mode_config) {
+        Ok(value) => value,
+        Err(_) => {
+            return fail_run(
+                &mut audit,
+                &audit_path,
+                &args.runtime_root,
+                &last_state_hash,
+                "provider_mode_invalid",
+            );
+        }
+    };
+    append_event(
+        &mut audit,
+        AuditEvent::ProviderModeSelected {
+            provider_mode: args.provider_mode.as_str().to_string(),
+            config_hash: provider_mode_config_hash,
+        },
+    )?;
     let workspace_ctx = match load_workspace_policy(&args.runtime_root, &run_id) {
         Ok(ctx) => {
             append_event(
@@ -771,6 +795,7 @@ pub(crate) fn run_route(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         RunCapsuleRun {
             run_id: run_id.clone(),
             mode: "route".to_string(),
+            provider_mode: Some(args.provider_mode.as_str().to_string()),
             ticks: Some(args.ticks),
             delta_ref,
         },
@@ -1382,6 +1407,7 @@ pub(crate) fn run_route(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 pending.len() as u64,
                 task.intent.clone(),
                 &router_config,
+                args.provider_mode,
                 skill_ctx.as_ref(),
                 &providers,
                 &redaction_ctx,
@@ -1444,6 +1470,7 @@ pub(crate) fn run_route(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             pending.len() as u64,
             intent.clone(),
             &router_config,
+            args.provider_mode,
             skill_ctx.as_ref(),
             &providers,
             &redaction_ctx,
@@ -1569,6 +1596,7 @@ pub(crate) fn run_replay(args: ReplayArgs) -> Result<(), Box<dyn std::error::Err
         RunCapsuleRun {
             run_id: run_id.clone(),
             mode: "replay".to_string(),
+            provider_mode: None,
             ticks: None,
             delta_ref: None,
         },
@@ -1833,6 +1861,7 @@ pub(crate) fn run_ingest(args: IngestArgs) -> Result<(), Box<dyn std::error::Err
         RunCapsuleRun {
             run_id: run_id.clone(),
             mode: "ingest".to_string(),
+            provider_mode: None,
             ticks: None,
             delta_ref: None,
         },

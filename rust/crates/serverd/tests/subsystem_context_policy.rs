@@ -145,7 +145,12 @@ fn context_policy_invalid_schema_fails_closed() {
     let events = read_event_types(&runtime_root);
     assert_eq!(
         events,
-        vec!["run_started", "workspace_policy_loaded", "run_completed"]
+        vec![
+            "run_started",
+            "provider_mode_selected",
+            "workspace_policy_loaded",
+            "run_completed"
+        ]
     );
 }
 #[test]
@@ -174,7 +179,12 @@ fn context_policy_empty_allowlist_fails_closed() {
     let events = read_event_types(&runtime_root);
     assert_eq!(
         events,
-        vec!["run_started", "workspace_policy_loaded", "run_completed"]
+        vec![
+            "run_started",
+            "provider_mode_selected",
+            "workspace_policy_loaded",
+            "run_completed"
+        ]
     );
 }
 

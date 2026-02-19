@@ -100,6 +100,43 @@ pub(crate) fn write_json_artifact_atomic(
     Ok(artifact_ref)
 }
 
+pub(crate) fn write_json_artifact_at_ref_atomic(
+    runtime_root: &Path,
+    subdir: &str,
+    artifact_ref: &str,
+    value: &serde_json::Value,
+) -> Result<String, ArtifactError> {
+    if !is_sha256_ref(artifact_ref) {
+        return Err(ArtifactError::new("artifact_ref_invalid"));
+    }
+    let bytes =
+        canonical_json_bytes(value).map_err(|_| ArtifactError::new("artifact_hash_failed"))?;
+    let dir = runtime_root.join("artifacts").join(subdir);
+    fs::create_dir_all(&dir).map_err(|e| ArtifactError::with_source("artifact_write_failed", e))?;
+    let filename = artifact_filename(artifact_ref);
+    let path = dir.join(&filename);
+    if path.exists() {
+        let existing =
+            fs::read(&path).map_err(|e| ArtifactError::with_source("artifact_read_failed", e))?;
+        if existing != bytes {
+            return Err(ArtifactError::new("artifact_conflict"));
+        }
+        return Ok(artifact_ref.to_string());
+    }
+    let tmp_path = dir.join(format!("{}.tmp", filename));
+    let mut file = fs::File::create(&tmp_path)
+        .map_err(|e| ArtifactError::with_source("artifact_write_failed", e))?;
+    file.write_all(&bytes)
+        .map_err(|e| ArtifactError::with_source("artifact_write_failed", e))?;
+    file.sync_all()
+        .map_err(|e| ArtifactError::with_source("artifact_write_failed", e))?;
+    if let Err(e) = fs::rename(&tmp_path, &path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(ArtifactError::with_source("artifact_write_failed", e));
+    }
+    Ok(artifact_ref.to_string())
+}
+
 pub(crate) fn artifact_filename(artifact_ref: &str) -> String {
     let trimmed = artifact_ref.strip_prefix("sha256:").unwrap_or(artifact_ref);
     format!("{}.json", trimmed)

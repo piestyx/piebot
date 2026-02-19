@@ -7,6 +7,32 @@ pub enum Mode {
     Route,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderMode {
+    Live,
+    Replay,
+    Record,
+}
+
+impl ProviderMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProviderMode::Live => "live",
+            ProviderMode::Replay => "replay",
+            ProviderMode::Record => "record",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "live" => Some(ProviderMode::Live),
+            "replay" => Some(ProviderMode::Replay),
+            "record" => Some(ProviderMode::Record),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Args {
     pub runtime_root: PathBuf,
@@ -15,6 +41,7 @@ pub struct Args {
     pub mode: Mode,
     pub skill_id: Option<String>,
     pub mode_profile: Option<String>,
+    pub provider_mode: ProviderMode,
 }
 
 pub struct VerifyArgs {

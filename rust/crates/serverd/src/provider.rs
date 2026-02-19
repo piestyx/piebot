@@ -8,6 +8,7 @@ pub const PROVIDER_RESPONSE_SCHEMA: &str = "serverd.provider_response.v1";
 pub const PROVIDER_OUTPUT_SCHEMA: &str = "serverd.provider_output.v1";
 pub const PROVIDER_INPUT_SCHEMA: &str = "serverd.provider_input.v1";
 pub const PROVIDER_CONSTRAINTS_SCHEMA: &str = "serverd.provider_constraints.v1";
+pub const PROVIDER_RESPONSE_ARTIFACT_SCHEMA: &str = "serverd.provider_response_artifact.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProviderId(String);
@@ -24,6 +25,13 @@ impl ProviderId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+fn panic_if_provider_called() {
+    let should_panic = std::env::var("MOCK_PROVIDER_PANIC_IF_CALLED")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    assert!(!should_panic, "provider infer called unexpectedly");
 }
 fn mock_tool_input_path() -> String {
     std::env::var("MOCK_TOOL_INPUT_PATH").unwrap_or_else(|_| "allowed.txt".to_string())
@@ -116,6 +124,18 @@ pub struct ProviderResponse {
     pub model: Option<String>,
     #[serde(skip)]
     pub output: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ProviderResponseArtifact {
+    pub schema: String,
+    pub request_hash: String,
+    pub provider_id: String,
+    pub response: serde_json::Value,
+    pub response_hash: String,
+    pub created_from_run_id: String,
+    pub created_from_tick_index: u64,
 }
 
 impl ProviderResponse {
@@ -212,6 +232,7 @@ impl ModelProvider for MockProvider {
     }
 
     fn infer(&self, req: &ProviderRequest) -> Result<ProviderResponse, ProviderError> {
+        panic_if_provider_called();
         let output = serde_json::json!({
             "schema": PROVIDER_OUTPUT_SCHEMA,
             "output": format!("mock:{}", req.request_hash),
@@ -246,6 +267,7 @@ impl ModelProvider for MockToolProvider {
     }
 
     fn infer(&self, req: &ProviderRequest) -> Result<ProviderResponse, ProviderError> {
+        panic_if_provider_called();
         let input_value = serde_json::json!({
             "schema": TOOL_INPUT_NOOP_SCHEMA,
             "path": mock_tool_input_path()
@@ -304,6 +326,7 @@ impl ModelProvider for NullProvider {
     }
 
     fn infer(&self, req: &ProviderRequest) -> Result<ProviderResponse, ProviderError> {
+        panic_if_provider_called();
         let output = serde_json::json!({
             "schema": PROVIDER_OUTPUT_SCHEMA,
             "output": "null",
