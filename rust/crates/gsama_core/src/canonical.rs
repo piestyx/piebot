@@ -74,10 +74,10 @@ pub fn compute_entry_id(
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(prev_head_hash);
-    hasher.update(&vector_to_bytes(vector));
-    hasher.update(&tags_to_bytes(tags));
-    hasher.update(&entropy_to_bytes(entropy));
-    hasher.update(&time_to_bytes(time));
+    hasher.update(vector_to_bytes(vector));
+    hasher.update(tags_to_bytes(tags));
+    hasher.update(entropy_to_bytes(entropy));
+    hasher.update(time_to_bytes(time));
     format!("sha256:{}", hex::encode(hasher.finalize()))
 }
 

@@ -77,15 +77,15 @@ impl ProjectionMatrix {
         }
 
         let mut out = vec![0.0f32; self.rows];
-        for row in 0..self.rows {
+        for (row, out_cell) in out.iter_mut().enumerate().take(self.rows) {
             let mut acc = 0.0f64;
             let row_start = row * self.cols;
-            for col in 0..self.cols {
+            for (col, input_cell) in input.iter().enumerate().take(self.cols) {
                 let a = self.data[row_start + col] as f64;
-                let b = input[col] as f64;
+                let b = *input_cell as f64;
                 acc += a * b;
             }
-            out[row] = acc as f32;
+            *out_cell = acc as f32;
         }
         Ok(out)
     }

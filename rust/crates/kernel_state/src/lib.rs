@@ -54,8 +54,7 @@ pub fn save(path: impl AsRef<Path>, state: &KernelState) -> Result<(), std::io::
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let bytes = serde_json::to_vec_pretty(state)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let bytes = serde_json::to_vec_pretty(state).map_err(std::io::Error::other)?;
     fs::write(path, bytes)?;
     Ok(())
 }

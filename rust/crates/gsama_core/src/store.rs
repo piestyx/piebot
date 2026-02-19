@@ -303,7 +303,7 @@ impl Store {
             b.0.partial_cmp(&a.0)
                 .unwrap_or(Ordering::Equal)
                 .then(b.1.cmp(&a.1))
-                .then(a.2.cmp(&b.2))
+                .then(a.2.cmp(b.2))
         });
 
         // Take top k
