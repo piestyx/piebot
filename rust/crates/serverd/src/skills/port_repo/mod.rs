@@ -1,9 +1,12 @@
 mod schemas;
 mod types;
 
-use crate::audit::{append_event, AuditEvent};
+use crate::audit::{append_event, read_audit_events, AuditEvent};
 use crate::command::ProviderMode;
-use crate::repo_index::RepoIndexEvidence;
+use crate::repo_index::{
+    domain_separated_hash_ref as canonical_domain_separated_hash_ref,
+    sha256_ref_to_hex as canonical_sha256_ref_to_hex, RepoIndexEvidence,
+};
 use crate::retrieval::{
     append_episode_to_gsama_store, GsamaEpisodeWriteInput, GsamaFeatureProfile, RetrievalConfig,
     RetrievalKind,
@@ -11,7 +14,7 @@ use crate::retrieval::{
 use crate::runtime::artifacts::{artifact_filename, write_json_artifact_atomic};
 use crate::skills::SkillContext;
 use pie_audit_log::AuditAppender;
-use pie_common::{canonical_json_bytes, sha256_bytes};
+use pie_common::canonical_json_bytes;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -200,6 +203,7 @@ pub(crate) fn generate_port_plan_from_provider_output(
     runtime_root: &Path,
     repo_index_evidence: Option<&RepoIndexEvidence>,
     provider_output: &serde_json::Value,
+    tick_index: u64,
     provider_mode: ProviderMode,
     retrieval_config: &RetrievalConfig,
     audit: &mut AuditAppender,
@@ -264,6 +268,7 @@ pub(crate) fn generate_port_plan_from_provider_output(
         AuditEvent::PortPlanWritten {
             plan_root_hash: plan_root_hash.clone(),
             artifact_ref: plan_ref.clone(),
+            request_ref: request_ref.clone(),
             repo_identity_root_hash: inputs.repo_identity.root_hash.clone(),
             repo_index_snapshot_root_hash: inputs.repo_index_snapshot.root_hash.clone(),
             node_count: nodes.len() as u64,
@@ -282,6 +287,7 @@ pub(crate) fn generate_port_plan_from_provider_output(
 
     let gsama_context = PortPlanGsamaContext {
         runtime_root,
+        tick_index,
         provider_mode,
         retrieval_config,
         repo_identity_root_hash: &inputs.repo_identity.root_hash,
@@ -361,8 +367,8 @@ fn canonicalize_port_plan(
     candidate_invariants: &[PortPlanCandidateInvariant],
     candidate_work_units: &[PortPlanCandidateWorkUnit],
 ) -> Result<(Vec<PortPlanNode>, Vec<PortInvariant>, Vec<WorkUnit>, String), PortPlanError> {
-    let repo_identity_root_hash_hex = sha256_ref_to_hex(repo_identity_root_hash)?;
-    let repo_index_snapshot_root_hash_hex = sha256_ref_to_hex(repo_index_snapshot_root_hash)?;
+    let repo_identity_root_hash_hex = hash_ref_to_hex(repo_identity_root_hash)?;
+    let repo_index_snapshot_root_hash_hex = hash_ref_to_hex(repo_index_snapshot_root_hash)?;
 
     let normalized_nodes = normalize_nodes(candidate_nodes)?;
     let mut node_by_id: BTreeMap<String, NormalizedNodeInput> = BTreeMap::new();
@@ -382,7 +388,7 @@ fn canonicalize_port_plan(
                 .collect(),
             invariant_statements: node.invariant_statements.clone(),
         };
-        let node_id = domain_hash_ref(NODE_DOMAIN, &payload)?;
+        let node_id = hash_ref_from_payload(NODE_DOMAIN, &payload)?;
         node_by_id.entry(node_id).or_insert(node);
     }
 
@@ -399,7 +405,7 @@ fn canonicalize_port_plan(
 
     let mut invariant_by_id: BTreeMap<String, PortInvariant> = BTreeMap::new();
     for invariant in normalize_invariants(candidate_invariants)? {
-        let invariant_id = domain_hash_ref(
+        let invariant_id = hash_ref_from_payload(
             INVARIANT_DOMAIN,
             &InvariantHashPayload {
                 repo_identity_root_hash_hex: repo_identity_root_hash_hex.clone(),
@@ -417,7 +423,7 @@ fn canonicalize_port_plan(
     for node in node_by_id.values() {
         let scope = primary_target(node)?;
         for statement in &node.invariant_statements {
-            let invariant_id = domain_hash_ref(
+            let invariant_id = hash_ref_from_payload(
                 INVARIANT_DOMAIN,
                 &InvariantHashPayload {
                     repo_identity_root_hash_hex: repo_identity_root_hash_hex.clone(),
@@ -500,12 +506,12 @@ fn canonicalize_port_plan(
             .get(&node_key)
             .cloned()
             .ok_or_else(|| PortPlanError::new("port_plan_provider_invalid"))?;
-        let id = domain_hash_ref(
+        let id = hash_ref_from_payload(
             WORK_UNIT_DOMAIN,
             &WorkUnitHashPayload {
                 repo_identity_root_hash_hex: repo_identity_root_hash_hex.clone(),
                 repo_index_snapshot_root_hash_hex: repo_index_snapshot_root_hash_hex.clone(),
-                node_id_hex: sha256_ref_to_hex(&node_id)?,
+                node_id_hex: hash_ref_to_hex(&node_id)?,
                 target_path: candidate.target_path.clone(),
                 acceptance_criteria: candidate.acceptance_criteria.clone(),
             },
@@ -532,18 +538,18 @@ fn canonicalize_port_plan(
             .iter()
             .map(|node| {
                 Ok(PortPlanNodeHashPayload {
-                    id_hex: sha256_ref_to_hex(&node.id)?,
+                    id_hex: hash_ref_to_hex(&node.id)?,
                     kind: node.kind.as_str().to_string(),
                     targets: node.targets.clone(),
                     dependencies: node
                         .dependencies
                         .iter()
-                        .map(|dep| sha256_ref_to_hex(dep))
+                        .map(|dep| hash_ref_to_hex(dep))
                         .collect::<Result<Vec<_>, _>>()?,
                     invariant_ids: node
                         .invariant_ids
                         .iter()
-                        .map(|id| sha256_ref_to_hex(id))
+                        .map(|id| hash_ref_to_hex(id))
                         .collect::<Result<Vec<_>, _>>()?,
                 })
             })
@@ -552,7 +558,7 @@ fn canonicalize_port_plan(
             .iter()
             .map(|inv| {
                 Ok(PortInvariantHashPayload {
-                    id_hex: sha256_ref_to_hex(&inv.id)?,
+                    id_hex: hash_ref_to_hex(&inv.id)?,
                     scope: inv.scope.clone(),
                     statement: inv.statement.clone(),
                 })
@@ -562,15 +568,15 @@ fn canonicalize_port_plan(
             .iter()
             .map(|wu| {
                 Ok(WorkUnitHashPayloadOut {
-                    id_hex: sha256_ref_to_hex(&wu.id)?,
-                    node_id_hex: sha256_ref_to_hex(&wu.node_id)?,
+                    id_hex: hash_ref_to_hex(&wu.id)?,
+                    node_id_hex: hash_ref_to_hex(&wu.node_id)?,
                     target_path: wu.target_path.clone(),
                     acceptance_criteria: wu.acceptance_criteria.clone(),
                 })
             })
             .collect::<Result<Vec<_>, PortPlanError>>()?,
     };
-    let plan_root_hash = domain_hash_ref(PLAN_DOMAIN, &plan_hash_payload)?;
+    let plan_root_hash = hash_ref_from_payload(PLAN_DOMAIN, &plan_hash_payload)?;
     Ok((nodes, invariants, work_units, plan_root_hash))
 }
 
@@ -710,26 +716,20 @@ fn primary_target_from_node(node: &PortPlanNode) -> String {
     node.targets.first().cloned().unwrap_or_default()
 }
 
-fn domain_hash_ref<T: Serialize>(domain: &str, payload: &T) -> Result<String, PortPlanError> {
+fn hash_ref_from_payload<T: Serialize>(domain: &str, payload: &T) -> Result<String, PortPlanError> {
     let value = serde_json::to_value(payload).map_err(|_| PortPlanError::new("port_plan_hash_failed"))?;
     let bytes = canonical_json_bytes(&value).map_err(|_| PortPlanError::new("port_plan_hash_failed"))?;
-    let mut data = Vec::with_capacity(domain.len() + 1 + bytes.len());
-    data.extend_from_slice(domain.as_bytes());
-    data.push(b'\n');
-    data.extend_from_slice(&bytes);
-    Ok(sha256_bytes(&data))
+    canonical_domain_separated_hash_ref(domain, &bytes)
+        .map_err(|_| PortPlanError::new("port_plan_hash_failed"))
 }
 
-fn sha256_ref_to_hex(value: &str) -> Result<String, PortPlanError> {
-    let trimmed = value.strip_prefix("sha256:").unwrap_or(value);
-    if trimmed.len() != 64 || !trimmed.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(PortPlanError::new("port_plan_hash_failed"));
-    }
-    Ok(trimmed.to_string())
+fn hash_ref_to_hex(value: &str) -> Result<String, PortPlanError> {
+    canonical_sha256_ref_to_hex(value).map_err(|_| PortPlanError::new("port_plan_hash_failed"))
 }
 
 struct PortPlanGsamaContext<'a> {
     runtime_root: &'a Path,
+    tick_index: u64,
     provider_mode: ProviderMode,
     retrieval_config: &'a RetrievalConfig,
     repo_identity_root_hash: &'a str,
@@ -768,7 +768,7 @@ fn append_port_plan_entries_to_gsama(
                     "entry_type:invariant\nentry_id:{}\nscope:{}\nstatement:{}",
                     invariant.id, invariant.scope, invariant.statement
                 ),
-                tick_index: 0,
+                tick_index: context.tick_index,
                 episode_ref: &format!("port_invariants/{}", invariant.id),
                 context_ref: &port_plan_ref,
                 intent_kind: PORT_REPO_INGEST_INTENT,
@@ -799,7 +799,7 @@ fn append_port_plan_entries_to_gsama(
                     node.kind.as_str(),
                     primary_target_from_node(node)
                 ),
-                tick_index: 0,
+                tick_index: context.tick_index,
                 episode_ref: &format!("port_nodes/{}", node.id),
                 context_ref: &port_plan_ref,
                 intent_kind: PORT_REPO_INGEST_INTENT,
@@ -828,7 +828,7 @@ fn append_port_plan_entries_to_gsama(
                     "entry_type:work_unit\nentry_id:{}\nnode_id:{}\ntarget_path:{}",
                     work_unit.id, work_unit.node_id, work_unit.target_path
                 ),
-                tick_index: 0,
+                tick_index: context.tick_index,
                 episode_ref: &format!("port_work_units/{}", work_unit.id),
                 context_ref: &port_plan_ref,
                 intent_kind: PORT_REPO_INGEST_INTENT,
@@ -868,10 +868,7 @@ fn load_repo_inputs(
             evidence.repo_index_snapshot_ref.clone(),
         )
     } else {
-        (
-            find_single_artifact_ref(runtime_root, "repo_identity")?,
-            find_single_artifact_ref(runtime_root, "repo_index_snapshot")?,
-        )
+        load_latest_repo_index_refs_from_audit(runtime_root)?
     };
     let repo_identity: RepoIdentityArtifactLite =
         read_artifact_json(runtime_root, "repo_identity", &repo_identity_ref)?;
@@ -913,32 +910,38 @@ fn read_artifact_json<T: serde::de::DeserializeOwned>(
     let bytes = fs::read(path).map_err(|_| PortPlanError::new("port_plan_repo_index_missing"))?;
     serde_json::from_slice(&bytes).map_err(|_| PortPlanError::new("port_plan_repo_index_missing"))
 }
-
-fn find_single_artifact_ref(runtime_root: &Path, subdir: &str) -> Result<String, PortPlanError> {
-    let dir = runtime_root.join("artifacts").join(subdir);
-    let read_dir = fs::read_dir(&dir).map_err(|_| PortPlanError::new("port_plan_repo_index_missing"))?;
-    let mut refs: Vec<String> = Vec::new();
-    for entry in read_dir {
-        let entry = entry.map_err(|_| PortPlanError::new("port_plan_repo_index_missing"))?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
+fn load_latest_repo_index_refs_from_audit(
+    runtime_root: &Path,
+) -> Result<(String, String), PortPlanError> {
+    let audit_path = runtime_root.join("logs").join("audit_rust.jsonl");
+    let events =
+        read_audit_events(&audit_path).map_err(|_| PortPlanError::new("port_plan_repo_index_missing"))?;
+    let mut latest_identity_ref: Option<String> = None;
+    let mut latest_pair: Option<(String, String)> = None;
+    for event in events {
+        let event_type = event
+            .get("event_type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| PortPlanError::new("port_plan_repo_index_missing"))?;
+        match event_type {
+            "repo_identity_written" => {
+                let artifact_ref = event
+                    .get("artifact_ref")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| PortPlanError::new("port_plan_repo_index_missing"))?;
+                latest_identity_ref = Some(artifact_ref.to_string());
+            }
+            "repo_index_snapshot_written" => {
+                let artifact_ref = event
+                    .get("artifact_ref")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| PortPlanError::new("port_plan_repo_index_missing"))?;
+                if let Some(identity_ref) = latest_identity_ref.as_ref() {
+                    latest_pair = Some((identity_ref.clone(), artifact_ref.to_string()));
+                }
+            }
+            _ => {}
         }
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        let Some(stem) = file_name.strip_suffix(".json") else {
-            continue;
-        };
-        if stem.len() != 64 || !stem.chars().all(|ch| ch.is_ascii_hexdigit()) {
-            continue;
-        }
-        refs.push(format!("sha256:{}", stem));
     }
-    refs.sort();
-    refs.dedup();
-    if refs.len() != 1 {
-        return Err(PortPlanError::new("port_plan_repo_index_missing"));
-    }
-    Ok(refs.remove(0))
+    latest_pair.ok_or_else(|| PortPlanError::new("port_plan_repo_index_missing"))
 }

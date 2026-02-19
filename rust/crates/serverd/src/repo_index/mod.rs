@@ -15,6 +15,7 @@ use self::config::load_repo_index_config;
 use self::error::RepoIndexError;
 use self::identity::build_repo_identity;
 use self::snapshot::build_repo_index_snapshot;
+pub(crate) use self::canonical::{domain_separated_hash_ref, sha256_ref_to_hex};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]

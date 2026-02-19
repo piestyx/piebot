@@ -22,6 +22,7 @@ pub const RETRIEVAL_RESULTS_SCHEMA: &str = "serverd.retrieval_results.v1";
 pub const CONTEXT_POINTER_SCHEMA: &str = "serverd.context_pointer.v1";
 pub const CONTEXT_POINTER_WRITE_FAILED: &str = "context_pointer_write_failed";
 pub const GSAMA_WRITE_INPUT_INVALID: &str = "gsama_write_input_invalid";
+const GSAMA_WRITE_MAX_EXTRA_TAGS: usize = 64;
 pub const GSAMA_VECTOR_SOURCE_HASH_FALLBACK_ONLY: &str = "hash_fallback_only";
 pub const GSAMA_VECTOR_SOURCE_EXTERNAL_ONLY: &str = "external_only";
 pub const GSAMA_VECTOR_SOURCE_EXTERNAL_OR_HASH_FALLBACK: &str = "external_or_hash_fallback";
@@ -149,6 +150,9 @@ fn validate_gsama_write_input(input: &GsamaEpisodeWriteInput<'_>) -> Result<(), 
         .ok_or_else(|| RetrievalError::new(GSAMA_WRITE_INPUT_INVALID))?;
     let _episode_ref = normalize_ref(episode_ns, episode_id)
         .ok_or_else(|| RetrievalError::new(GSAMA_WRITE_INPUT_INVALID))?;
+    if input.extra_tags.len() > GSAMA_WRITE_MAX_EXTRA_TAGS {
+        return Err(RetrievalError::new(GSAMA_WRITE_INPUT_INVALID));
+    }
     for (key, value) in &input.extra_tags {
         if !is_safe_token(key) || value.trim().is_empty() || value.contains('\n') {
             return Err(RetrievalError::new(GSAMA_WRITE_INPUT_INVALID));

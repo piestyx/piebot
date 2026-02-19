@@ -1692,6 +1692,7 @@ pub(crate) fn run_route_tick(
                 runtime_root,
                 repo_index_evidence.as_ref(),
                 &output_value,
+                tick_index,
                 provider_mode,
                 &retrieval.config,
                 audit,

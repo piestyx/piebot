@@ -446,6 +446,7 @@ pub(crate) enum AuditEvent {
     PortPlanWritten {
         plan_root_hash: String,
         artifact_ref: String,
+        request_ref: String,
         repo_identity_root_hash: String,
         repo_index_snapshot_root_hash: String,
         node_count: u64,

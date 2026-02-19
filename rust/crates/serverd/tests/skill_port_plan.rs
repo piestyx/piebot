@@ -61,11 +61,15 @@ fn write_workspace_policy(runtime_root: &Path) {
 }
 
 fn write_repo_index_config(runtime_root: &Path) {
+    write_repo_index_config_with_enabled(runtime_root, true);
+}
+
+fn write_repo_index_config_with_enabled(runtime_root: &Path, enabled: bool) {
     let dir = runtime_root.join("repo_index");
     fs::create_dir_all(&dir).expect("create repo_index dir");
     let value = serde_json::json!({
         "schema": REPO_INDEX_CONFIG_SCHEMA,
-        "enabled": true,
+        "enabled": enabled,
         "max_file_bytes": 1024 * 1024,
         "max_total_bytes": 4 * 1024 * 1024,
         "chunk_mode": "fixed_size",
@@ -80,11 +84,15 @@ fn write_repo_index_config(runtime_root: &Path) {
 }
 
 fn write_retrieval_config(runtime_root: &Path) {
+    write_retrieval_config_with_enabled(runtime_root, true);
+}
+
+fn write_retrieval_config_with_enabled(runtime_root: &Path, enabled: bool) {
     let dir = runtime_root.join("retrieval");
     fs::create_dir_all(&dir).expect("create retrieval dir");
     let value = serde_json::json!({
         "schema": RETRIEVAL_CONFIG_SCHEMA,
-        "enabled": true,
+        "enabled": enabled,
         "kind": "gsama",
         "sources": ["episodic"],
         "namespaces_allowlist": ["contexts"],
@@ -174,6 +182,14 @@ fn read_event_payloads(runtime_root: &Path) -> Vec<serde_json::Value> {
 fn find_event(events: &[serde_json::Value], event_type: &str) -> serde_json::Value {
     common::find_event(events, event_type)
 }
+fn find_last_event(events: &[serde_json::Value], event_type: &str) -> serde_json::Value {
+    events
+        .iter()
+        .rev()
+        .find(|event| event.get("event_type").and_then(|v| v.as_str()) == Some(event_type))
+        .cloned()
+        .unwrap_or_else(|| panic!("missing {}", event_type))
+}
 
 fn find_events(events: &[serde_json::Value], event_type: &str) -> Vec<serde_json::Value> {
     events
@@ -245,6 +261,19 @@ fn deterministic_port_plan_across_runtime_roots() {
     let events_two = read_event_payloads(&runtime_two);
     let port_plan_one = find_event(&events_one, "port_plan_written");
     let port_plan_two = find_event(&events_two, "port_plan_written");
+    let request_one = find_event(&events_one, "port_plan_request_written");
+    let request_ref_one = request_one
+        .get("artifact_ref")
+        .and_then(|v| v.as_str())
+        .expect("request artifact_ref one missing");
+    assert_eq!(
+        port_plan_one.get("request_ref").and_then(|v| v.as_str()),
+        Some(request_ref_one)
+    );
+    assert!(
+        artifact_path(&runtime_one, "port_plan_requests", request_ref_one).is_file(),
+        "port plan request artifact should exist"
+    );
     let plan_root_one = port_plan_one
         .get("plan_root_hash")
         .and_then(|v| v.as_str())
@@ -437,6 +466,19 @@ fn replay_mode_uses_recorded_provider_artifact_without_provider_call() {
         .and_then(|v| v.as_str())
         .expect("replay plan ref missing");
     assert_eq!(record_plan_ref, replay_plan_ref);
+    let replay_request_event = find_event(&replay_events, "port_plan_request_written");
+    let replay_request_ref = replay_request_event
+        .get("artifact_ref")
+        .and_then(|v| v.as_str())
+        .expect("replay request ref missing");
+    assert_eq!(
+        replay_plan_event.get("request_ref").and_then(|v| v.as_str()),
+        Some(replay_request_ref)
+    );
+    assert!(
+        artifact_path(&runtime_replay, "port_plan_requests", replay_request_ref).is_file(),
+        "replay request artifact missing"
+    );
     let record_bytes = fs::read(artifact_path(&runtime_record, "port_plans", record_plan_ref))
         .expect("read record plan bytes");
     let replay_bytes = fs::read(artifact_path(&runtime_replay, "port_plans", replay_plan_ref))
@@ -473,5 +515,87 @@ fn invalid_provider_payload_fails_closed() {
     assert!(
         find_events(&events, "port_plan_written").is_empty(),
         "port plan artifact must not be written on invalid provider payload"
+    );
+}
+
+#[test]
+fn multi_run_runtime_uses_latest_audit_repo_refs_when_repo_index_disabled() {
+    let runtime_root =
+        std::env::temp_dir().join(format!("pie_port_plan_multi_run_{}", Uuid::new_v4()));
+    setup_runtime(&runtime_root);
+
+    let out_first = run_serverd_route_with_envs(&runtime_root, "record", &[]);
+    assert!(
+        out_first.status.success(),
+        "first run failed: {}",
+        String::from_utf8_lossy(&out_first.stderr)
+    );
+
+    fs::write(
+        runtime_root.join("workspace_data").join("src").join("lib.rs"),
+        b"pub fn migrate_v2() {}\n",
+    )
+    .expect("write updated workspace for second run");
+    let out_second = run_serverd_route_with_envs(&runtime_root, "record", &[]);
+    assert!(
+        out_second.status.success(),
+        "second run failed: {}",
+        String::from_utf8_lossy(&out_second.stderr)
+    );
+
+    let events_after_second = read_event_payloads(&runtime_root);
+    let latest_repo_identity = find_last_event(&events_after_second, "repo_identity_written");
+    let latest_repo_snapshot = find_last_event(&events_after_second, "repo_index_snapshot_written");
+    let expected_repo_identity_root_hash = latest_repo_identity
+        .get("root_hash")
+        .and_then(|v| v.as_str())
+        .expect("latest repo identity root hash missing")
+        .to_string();
+    let expected_repo_snapshot_root_hash = latest_repo_snapshot
+        .get("root_hash")
+        .and_then(|v| v.as_str())
+        .expect("latest repo snapshot root hash missing")
+        .to_string();
+    let repo_identity_events_before = find_events(&events_after_second, "repo_identity_written").len();
+    let repo_snapshot_events_before =
+        find_events(&events_after_second, "repo_index_snapshot_written").len();
+
+    write_repo_index_config_with_enabled(&runtime_root, false);
+    write_retrieval_config_with_enabled(&runtime_root, false);
+    fs::write(
+        runtime_root.join("workspace_data").join("src").join("lib.rs"),
+        b"pub fn migrate_v3() {}\n",
+    )
+    .expect("write updated workspace for third run");
+    let out_third = run_serverd_route_with_envs(&runtime_root, "record", &[]);
+    assert!(
+        out_third.status.success(),
+        "third run failed: {}",
+        String::from_utf8_lossy(&out_third.stderr)
+    );
+
+    let events_after_third = read_event_payloads(&runtime_root);
+    assert_eq!(
+        find_events(&events_after_third, "repo_identity_written").len(),
+        repo_identity_events_before,
+        "repo identity should not be rebuilt when repo_index is disabled"
+    );
+    assert_eq!(
+        find_events(&events_after_third, "repo_index_snapshot_written").len(),
+        repo_snapshot_events_before,
+        "repo snapshot should not be rebuilt when repo_index is disabled"
+    );
+    let latest_plan_event = find_last_event(&events_after_third, "port_plan_written");
+    assert_eq!(
+        latest_plan_event
+            .get("repo_identity_root_hash")
+            .and_then(|v| v.as_str()),
+        Some(expected_repo_identity_root_hash.as_str())
+    );
+    assert_eq!(
+        latest_plan_event
+            .get("repo_index_snapshot_root_hash")
+            .and_then(|v| v.as_str()),
+        Some(expected_repo_snapshot_root_hash.as_str())
     );
 }

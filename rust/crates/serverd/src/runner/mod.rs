@@ -143,6 +143,7 @@ fn build_providers() -> Result<Vec<Box<dyn ModelProvider>>, ProviderError> {
     Ok(vec![
         Box::new(MockProvider::new()?),
         Box::new(MockToolProvider::new()?),
+        // Test-only provider: never selected unless router config explicitly sets "mock_port_plan".
         Box::new(MockPortPlanProvider::new()?),
         Box::new(NullProvider::new()?),
     ])

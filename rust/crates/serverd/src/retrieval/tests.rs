@@ -329,6 +329,43 @@ mod tests {
     }
 
     #[test]
+    fn append_episode_rejects_excess_extra_tags_with_gsama_write_input_invalid() {
+        let tmp = TempDir::new().unwrap();
+        let runtime_root = tmp.path();
+        let config = gsama_config(GSAMA_VECTOR_SOURCE_EXTERNAL_ONLY);
+        let semantic_dim = config.gsama_vector_dim - NON_SEMANTIC_DIM;
+        let extra_tags = (0..65)
+            .map(|idx| (format!("k{}", idx), "v".to_string()))
+            .collect::<Vec<_>>();
+        let input = GsamaEpisodeWriteInput {
+            text: "sample",
+            tick_index: 1,
+            episode_ref: "episodes/sha256:episode",
+            context_ref: "contexts/sha256:deadbeef",
+            intent_kind: "test",
+            semantic_vector: Some(vec![0.0; semantic_dim]),
+            entropy: 0.0,
+            feature_profile: GsamaFeatureProfile {
+                turn_index: 1.0,
+                time_since_last: 0.0,
+                write_frequency: 1.0,
+                entropy: 0.0,
+                self_state_shift_cosine: 0.0,
+                importance: 1.0,
+            },
+            extra_tags,
+        };
+        let err = append_episode_to_gsama_store(
+            runtime_root,
+            &config,
+            &input,
+            crate::command::ProviderMode::Live,
+        )
+        .expect_err("excess extra tags must fail before store write");
+        assert_eq!(err.reason(), GSAMA_WRITE_INPUT_INVALID);
+    }
+
+    #[test]
     fn normalize_ref_allows_sha256_ids() {
         // Namespace must be a safe token; ID may include ':' such as sha256 refs.
         let normalized = normalize_ref("contexts", "sha256:deadbeef");
