@@ -7,6 +7,7 @@ mod context;
 mod mutations;
 mod operator_actions;
 pub(crate) mod policy;
+mod repo_index;
 mod route;
 mod runner;
 pub(crate) mod runtime;

@@ -9,6 +9,7 @@ use crate::lenses::{
     build_lens_plan, build_lens_set_selected, execute_lens_pipeline, LensConfig, LensError,
     LensOutputsArtifact, LensSetSelectedArtifact,
 };
+use crate::repo_index::maybe_build_repo_index;
 use crate::memory::{load_episode_head, WorkingMemory};
 use crate::modes::ModeToolConstraints;
 use crate::output_contract::{
@@ -503,6 +504,15 @@ pub(crate) fn run_route_tick(
             request_hash: request_hash.clone(),
         },
     )?;
+    if let Err(e) = maybe_build_repo_index(
+        runtime_root,
+        &workspace_ctx.run_workspace_root,
+        provider_mode,
+        audit,
+    ) {
+        fail_run(audit, audit_path, runtime_root, last_state_hash, e.reason())?;
+        unreachable!();
+    }
     let seed_context = select_context(skill_ctx);
     let prompt_template_refs =
         effective_prompt_template_refs(skill_ctx, prompt.template_override_ref.as_deref());

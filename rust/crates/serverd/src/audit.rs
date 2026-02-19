@@ -428,6 +428,18 @@ pub(crate) enum AuditEvent {
         item_count: u64,
         bytes: u64,
     },
+    RepoIdentityWritten {
+        root_hash: String,
+        artifact_ref: String,
+        file_count: u64,
+        total_bytes: u64,
+    },
+    RepoIndexSnapshotWritten {
+        root_hash: String,
+        artifact_ref: String,
+        chunk_count: u64,
+        file_count: u64,
+    },
 
     // Stage 9 events
     OutputContractLoaded {
